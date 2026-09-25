@@ -152,11 +152,20 @@ export function holeSummary(round, holeNo) {
   return { shots, putts, strokes: shots + putts, finished: !!(h && h.finished_at) };
 }
 
+export const HOLES = 18;
+
+// Next/previous hole number, wrapping 18 -> 1 (for rounds started on the back nine).
+export const nextHoleNo = (n) => (n >= HOLES ? 1 : n + 1);
+export const prevHoleNo = (n) => (n <= 1 ? HOLES : n - 1);
+
 // Close the current hole and move to the next one.
 export function finishHole(round, now = new Date()) {
   hole(round, round.current_hole).finished_at = now.toISOString();
-  round.current_hole++;
+  round.current_hole = nextHoleNo(round.current_hole);
 }
+
+export const finishedHoleCount = (round) =>
+  Object.values(round.holes).filter((h) => h.finished_at).length;
 
 export function totalStrokes(round) {
   const holeNos = new Set([

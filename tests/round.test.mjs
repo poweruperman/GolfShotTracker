@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { haversineM } from '../js/geo.js';
 import {
   newRound, addShot, setHoleEnd, editShot, deleteShot, addPutt, removePutt,
-  finishHole, holeSummary, totalStrokes, shotsToCsv, shotsOnHole,
+  finishHole, holeSummary, totalStrokes, shotsToCsv, shotsOnHole, finishedHoleCount,
 } from '../js/round.js';
 
 // Made-up spot. 0.001° of latitude is about 111.2 m anywhere on Earth.
@@ -93,6 +93,13 @@ test('putts, finishing a hole and total strokes', () => {
   removePutt(r, 2); // can't go below zero
   addShot(r, { club: 'Dr', pos: pos(0.01) });
   assert.equal(totalStrokes(r), 5);
+});
+
+test('finishing hole 18 wraps to hole 1 (round started on the back nine)', () => {
+  const r = newRound({ startHole: 18, now: new Date(clock) });
+  finishHole(r, new Date(clock));
+  assert.equal(r.current_hole, 1);
+  assert.equal(finishedHoleCount(r), 1);
 });
 
 test('CSV has a header and one row per shot, with quoting', () => {
