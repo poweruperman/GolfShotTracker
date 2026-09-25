@@ -36,17 +36,17 @@ No libraries, no build step. Plain HTML, CSS and JavaScript.
 GPS access in a browser requires **HTTPS**, so the app has to be hosted, not
 opened as a file. GitHub Pages gives free HTTPS hosting.
 
-1. Create a free account at github.com if you don't have one.
-2. Click **+** → **New repository**. Name it `golf-tracker`. Set it to
-   **Public** (Pages on a private repository requires a paid GitHub plan).
-   Public is fine: the code contains no personal data. Your GPS readings
-   stay on your phone.
-3. In the new repository, click **uploading an existing file**, drag in all
-   the files *and* the `icons` folder, then **Commit changes**.
-4. Go to **Settings** → **Pages**. Under *Build and deployment*, set Source to
+The code lives in the `GolfShotTracker` repository. Pages is free only for
+**public** repositories on a free GitHub account (private needs a paid plan).
+Public is fine: the code contains no personal data, and your GPS readings stay
+on your phone.
+
+1. Repository **Settings** → **General** → *Danger Zone* → **Change visibility**
+   → **Public**.
+2. **Settings** → **Pages**. Under *Build and deployment*, set Source to
    **Deploy from a branch**, branch **main**, folder **/ (root)**, then **Save**.
-5. Wait a minute or two. The page shows your link, like
-   `https://<your-username>.github.io/golf-tracker/`.
+3. Wait a minute or two. The link is
+   `https://poweruperman.github.io/GolfShotTracker/`.
 
 ## Step 2: Install on the iPhone
 

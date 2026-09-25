@@ -2,9 +2,13 @@
 
 This file gives you (Claude Code) the background, goals, fixed decisions and
 working rules for this repository. Read it fully before making changes.
-Planning and decisions happen in a separate Claude chat Project called
-"Arccos Replica". This file is the bridge between that Project and this
-repository.
+Planning and decisions happen in a separate Claude chat Project. This file
+is the bridge between that Project and this repository.
+
+- **Repository:** `poweruperman/GolfShotTracker` (renamed from an earlier name
+  that used a trademarked product name; keep product names out of repo, app
+  and file names)
+- **Live app:** https://poweruperman.github.io/GolfShotTracker/
 
 ---
 
