@@ -134,3 +134,6 @@ button.danger { border-color: var(--bad); color: var(--bad); }
 
 .small { font-size: 13px; color: var(--muted); }
 footer { text-align: center; padding: 8px 0; }
+
+/* Link back to the shot tracker */
+.back { color: var(--green); text-decoration: none; padding-right: 4px; }
