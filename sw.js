@@ -1,17 +1,33 @@
 /*
  * Service worker: caches the app's own files so it opens even with weak or
  * no signal on the course. It does NOT cache or send any location data.
+ * Map imagery comes from another site (USGS) and is not cached here yet.
  *
  * Strategy: "stale-while-revalidate" — show the cached copy instantly, then
  * fetch a fresh copy in the background for next time. After you publish an
  * update, open the app twice to see it (or bump CACHE_NAME below).
  */
-const CACHE_NAME = 'gps-spike-v1';
+const CACHE_NAME = 'shot-tracker-v2';
 const APP_FILES = [
   './',
   './index.html',
   './style.css',
-  './app.js',
+  './js/app.js',
+  './js/geo.js',
+  './js/round.js',
+  './js/store.js',
+  './js/map.js',
+  './vendor/leaflet/leaflet.js',
+  './vendor/leaflet/leaflet.css',
+  './vendor/leaflet/images/layers.png',
+  './vendor/leaflet/images/layers-2x.png',
+  './vendor/leaflet/images/marker-icon.png',
+  './vendor/leaflet/images/marker-icon-2x.png',
+  './vendor/leaflet/images/marker-shadow.png',
+  './gps-test/',
+  './gps-test/index.html',
+  './gps-test/style.css',
+  './gps-test/app.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
