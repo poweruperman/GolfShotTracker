@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- viewport-fit=cover lets the layout use the full iPhone screen, including around the notch -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Golf Shot Tracker</title>
+
+  <!-- PWA install metadata -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1f5f3a">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Shot Tracker">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ============ Start screen (no round in progress) ============ -->
+  <section id="startScreen" hidden>
+    <header><h1>Golf Shot Tracker</h1></header>
+
+    <div class="card">
+      <h2>New round</h2>
+      <label for="courseInput">Course</label>
+      <input id="courseInput" type="text" placeholder="e.g. Home course" autocomplete="off">
+      <label for="startHoleInput">Starting hole</label>
+      <select id="startHoleInput"></select>
+      <button id="startBtn" class="big">Start round</button>
+      <p class="small">Starting a round turns on <em>Keep screen on</em>. That uses
+        extra battery: the screen and GPS are the two biggest drains on a phone.</p>
+    </div>
+
+    <div class="card">
+      <h2>Past rounds</h2>
+      <ol id="pastRounds" class="plain"></ol>
+      <div class="row">
+        <button id="exportAllCsvBtn">Export CSV</button>
+        <button id="exportAllJsonBtn">Export JSON</button>
+      </div>
+    </div>
+
+    <div class="card row">
+      <button id="bagBtn">My bag</button>
+      <a class="button" href="gps-test/">GPS test</a>
+    </div>
+  </section>
+
+  <!-- ============ Round screen ============ -->
+  <section id="roundScreen" hidden>
+    <header class="round-header">
+      <div>
+        <div id="courseName" class="course"></div>
+        <div id="roundTotal" class="small"></div>
+      </div>
+      <button id="menuBtn" aria-label="Menu">•••</button>
+    </header>
+
+    <div class="hole-bar">
+      <button id="prevHoleBtn" aria-label="Previous hole">‹</button>
+      <div>
+        <div class="hole-title">Hole <span id="holeNo"></span></div>
+        <div id="holeSummary" class="small"></div>
+      </div>
+      <button id="nextHoleBtn" aria-label="Next hole">›</button>
+    </div>
+
+    <div id="map"></div>
+
+    <!-- Result of the last press, and live progress while the GPS samples -->
+    <div id="status" class="status">
+      <div id="statusText">Stand at the ball, then tap the club you're about to hit.</div>
+      <div id="progress" class="progress" hidden><div id="progressFill"></div></div>
+    </div>
+
+    <p class="rule small"><strong>Stand at the ball</strong>, not the cart, then tap
+      the club you're about to hit. Distances are to where you next tap
+      (carry + roll), <strong>not carry</strong>.</p>
+
+    <div id="clubGrid" class="club-grid"></div>
+
+    <div class="putt-row card">
+      <div>
+        <div class="putt-label">Putts</div>
+        <div class="small">First tap marks the ball on the green</div>
+      </div>
+      <button id="puttMinusBtn" aria-label="Remove putt">−</button>
+      <span id="puttCount" class="putt-count">0</span>
+      <button id="puttPlusBtn" aria-label="Add putt">+</button>
+    </div>
+
+    <div class="row">
+      <button id="shotListBtn">Shots</button>
+      <button id="finishHoleBtn" class="primary">Finish hole ›</button>
+    </div>
+  </section>
+
+  <!-- ============ Dialogs ============ -->
+
+  <dialog id="shotListDialog">
+    <h2>Shots this round</h2>
+    <p class="small">Tap a shot to change its club or hole, exclude it from
+      stats (penalty drop, mulligan, provisional, punch-out), or delete it.
+      Distances update automatically.</p>
+    <div id="shotList"></div>
+    <form method="dialog"><button class="big">Done</button></form>
+  </dialog>
+
+  <dialog id="editShotDialog">
+    <h2 id="editTitle">Edit shot</h2>
+    <div id="editInfo" class="small"></div>
+    <label for="editClub">Club</label>
+    <select id="editClub"></select>
+    <label for="editHole">Hole</label>
+    <select id="editHole"></select>
+    <label class="check"><input id="editExclude" type="checkbox"> Exclude from stats</label>
+    <div class="row">
+      <button id="editSaveBtn" class="primary">Save</button>
+      <button id="editCancelBtn">Cancel</button>
+    </div>
+    <button id="editDeleteBtn" class="danger">Delete shot</button>
+  </dialog>
+
+  <dialog id="menuDialog">
+    <h2>Round</h2>
+    <button id="wakeBtn">Keep screen on: off</button>
+    <button id="exportCsvBtn">Export this round (CSV)</button>
+    <button id="exportJsonBtn">Export this round (JSON)</button>
+    <button id="menuBagBtn">My bag</button>
+    <a class="button" href="gps-test/">GPS test</a>
+    <button id="endRoundBtn" class="danger">End round</button>
+    <form method="dialog"><button class="big">Close</button></form>
+  </dialog>
+
+  <dialog id="bagDialog">
+    <h2>My bag</h2>
+    <p class="small">Clubs shown as buttons, in this order. One per line.
+      Keep names short (e.g. Dr, 3W, 4H, 7i, PW, 56°).</p>
+    <textarea id="bagText" rows="14"></textarea>
+    <div class="row">
+      <button id="bagSaveBtn" class="primary">Save</button>
+      <button id="bagResetBtn">Reset to default</button>
+    </div>
+    <form method="dialog"><button class="big">Close</button></form>
+  </dialog>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

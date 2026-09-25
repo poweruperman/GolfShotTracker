@@ -1,0 +1,190 @@
+/* Light, high-contrast theme: easier to read in direct sunlight than dark mode. */
+:root {
+  --green: #1f5f3a;
+  --green-light: #e6f2ea;
+  --ink: #111;
+  --muted: #555;
+  --bg: #f4f5f2;
+  --card: #fff;
+  --good: #1a7f37;
+  --ok: #9a6700;
+  --bad: #cf222e;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, system-ui, sans-serif;
+  font-size: 17px;
+  color: var(--ink);
+  background: var(--bg);
+  /* Keep content clear of the notch and home indicator on iPhone */
+  padding: env(safe-area-inset-top) 12px calc(env(safe-area-inset-bottom) + 12px);
+  -webkit-text-size-adjust: 100%;
+}
+
+[hidden] { display: none !important; }
+
+header { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; }
+h1 { font-size: 22px; margin: 0; color: var(--green); }
+h2 { font-size: 18px; margin: 0 0 8px; }
+h3 { font-size: 16px; margin: 12px 0 4px; }
+
+.card {
+  background: var(--card);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
+}
+
+.small { font-size: 13px; color: var(--muted); }
+.row { display: flex; gap: 8px; margin-bottom: 10px; }
+.row > * { flex: 1; }
+
+label { display: block; font-size: 14px; color: var(--muted); margin: 8px 0 4px; }
+label.check { display: flex; align-items: center; gap: 10px; font-size: 17px; color: var(--ink); margin: 14px 0; }
+label.check input { width: 24px; height: 24px; }
+
+/* 16px or more stops iOS from zooming into form fields */
+input[type="text"], select, textarea {
+  width: 100%;
+  font-size: 17px;
+  padding: 10px;
+  border: 1px solid #bbb;
+  border-radius: 8px;
+  background: #fff;
+  font-family: inherit;
+}
+
+button, a.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--green);
+  background: #fff;
+  color: var(--green);
+  font-weight: 600;
+  min-height: 48px; /* comfortable touch target, even with a glove */
+  text-decoration: none;
+  font-family: inherit;
+}
+button:disabled { opacity: .45; }
+button.primary { background: var(--green); color: #fff; }
+button.big { width: 100%; font-size: 20px; min-height: 64px; background: var(--green); color: #fff; margin-top: 12px; }
+button.danger { border-color: var(--bad); color: var(--bad); }
+
+/* ---- Round screen ---- */
+
+.round-header .course { font-size: 18px; font-weight: 700; color: var(--green); }
+#menuBtn { min-width: 56px; }
+
+.hole-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: center;
+  margin-bottom: 8px;
+}
+.hole-bar button { min-width: 56px; font-size: 26px; }
+.hole-title { font-size: 26px; font-weight: 800; }
+
+#map {
+  height: 38vh;
+  min-height: 220px;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  background: #cfd8cf;
+}
+
+.status {
+  background: var(--card);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  min-height: 48px;
+  border-left: 5px solid var(--green);
+}
+.status.error { border-left-color: var(--bad); }
+.progress { height: 8px; background: #ddd; border-radius: 4px; overflow: hidden; margin-top: 8px; }
+#progressFill { height: 100%; width: 0; background: var(--green); transition: width .2s linear; }
+
+.rule { margin: 0 0 8px; }
+
+.club-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.club-grid .club { font-size: 20px; min-height: 60px; padding: 4px; }
+.club-grid .club:active { background: var(--green); color: #fff; }
+
+.putt-row { display: flex; align-items: center; gap: 10px; }
+.putt-row > div:first-child { flex: 1; }
+.putt-label { font-size: 18px; font-weight: 700; }
+.putt-row button { min-width: 60px; min-height: 56px; font-size: 26px; }
+.putt-count { font-size: 28px; font-weight: 800; min-width: 32px; text-align: center; }
+
+.badge { display: inline-block; padding: 1px 8px; border-radius: 6px; color: #fff; font-weight: 700; font-size: 14px; }
+.badge.good { background: var(--good); }
+.badge.ok { background: var(--ok); }
+.badge.bad { background: var(--bad); }
+
+/* ---- Map markers ---- */
+
+.shot-pin span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--green);
+  color: var(--green);
+  font-weight: 800;
+  font-size: 14px;
+}
+.shot-pin.excluded span { border-style: dashed; opacity: .6; }
+.leaflet-tooltip.shot-tip { font-size: 13px; font-weight: 700; padding: 2px 6px; }
+.end-pin { font-size: 22px; line-height: 24px; color: #fff; text-shadow: 0 0 3px #000; }
+
+/* ---- Lists and dialogs ---- */
+
+ol.plain { list-style: none; padding: 0; margin: 0; }
+
+dialog {
+  width: min(94vw, 480px);
+  max-height: 88vh;
+  border: none;
+  border-radius: 14px;
+  padding: 16px;
+}
+dialog::backdrop { background: rgba(0, 0, 0, .45); }
+dialog > button, dialog > a.button { width: 100%; margin-bottom: 8px; }
+
+.shot-row, .round-row {
+  width: 100%;
+  display: grid;
+  text-align: left;
+  justify-content: stretch;
+  margin-bottom: 6px;
+  color: var(--ink);
+  border-color: #ccc;
+}
+.shot-row {
+  grid-template-columns: 28px 1fr auto;
+  grid-template-areas: "no club dist" "no meta meta";
+  column-gap: 8px;
+}
+.shot-no { grid-area: no; font-weight: 800; color: var(--green); align-self: center; }
+.shot-club { grid-area: club; font-weight: 700; }
+.shot-dist { grid-area: dist; font-weight: 800; font-variant-numeric: tabular-nums; }
+.shot-meta { grid-area: meta; font-size: 13px; color: var(--muted); font-weight: 400; }
+.shot-row.excluded { opacity: .55; }
+.round-row { display: block; font-weight: 400; }
