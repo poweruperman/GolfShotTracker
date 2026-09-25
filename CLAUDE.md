@@ -147,10 +147,10 @@ courses: id, name, osm_id, center_lat, center_lon, image_status
 | Phase | Deliverable | Field test | Status |
 |---|---|---|---|
 | 0. GPS spike | Single-page PWA, one button that logs position + accuracy, installed to home screen | Stand at a tee marker 5 times; check scatter | **Installed on iPhone; GPS works indoors. Outdoor scatter test pending** |
-| 1. Tracker MVP | Club buttons, hole/shot counter, distance between presses, holed-out + putt counter, local queue | Play 3 holes; compare distances with yardage markers | Not started |
+| 1. Tracker MVP | Club buttons, hole/shot counter, distance between presses, holed-out + putt counter, local queue | Play 3 holes; compare distances with yardage markers | **Built, not yet field-tested** |
 | 2. Cloud sync | Supabase tables, sync queue, CSV export | Airplane mode mid-hole, reconnect; no shots lost | Not started |
 | 3. Course images (one course) | Overpass fetch, coverage report, per-hole images for one home course | Compare with the course's scorecard map | Not started |
-| 4. Overlay | Shots plotted on the hole image during and after the round | Review a full round on the map | Not started |
+| 4. Overlay | Shots plotted on the hole image during and after the round | Review a full round on the map | Early version in Phase 1: shots on the satellite map (no outlines or rotation yet) |
 | 5. Any course on demand | Course search, automatic image generation, coverage fallbacks | Try an unfamiliar course, incl. one with sparse OSM data | Not started |
 | 6. Stats | Average and range per club, dispersion by club, shots to green | Compare with Arccos club averages before cancelling | Not started |
 
@@ -159,11 +159,32 @@ reading within 5 m (≈ 5.5 yd) of the average point over 5 readings at the same
 spot. The Phase 0 results decide the sampling time and permission handling for
 Phase 1. Don't build Phase 1 on assumptions that the field test may overturn.
 
+**Decision (2026-09-25):** David chose to build Phase 1 before the outdoor
+Phase 0 test (not able to get to a course yet). The sampling time lives in
+one constant, `SAMPLE_MS` in `js/geo.js`, to be tuned from the test results.
+
+**Phase 1 design choices:**
+- The first **Putt +** on a hole also takes a GPS reading (the ball on the
+  green); it gives the last full shot its distance. On a chip-in (no putts),
+  **Finish hole** offers to record the cup instead.
+- Shots on a hole are ordered by time; shot numbers and distances are
+  recomputed from scratch after every edit (`recomputeHole` in `js/round.js`).
+- If the GPS fails, the shot can still be saved without a position so the
+  score stays right; it and the shot before it get no distance.
+- Storage is one JSON document in `localStorage` (`js/store.js`). Cloud sync
+  (Phase 2) should copy these same records.
+
 Update the Status column when a phase changes state.
 
 ### Open items
 
-- **Imagery provider:** pick one and confirm caching/attribution terms before Phase 3.
+- **Imagery provider:** the live map uses **USGS The National Map,
+  `USGSImageryOnly`** (checked 2026-09-25: USGS data is US public domain,
+  free to use with USGS credited; US coverage only; mostly ~0.6–1 m NAIP
+  photos). No account or key. Tiles aren't cached by the service worker yet.
+  The maximum zoom requested (`IMAGERY_MAX_NATIVE_ZOOM` in `js/map.js`) could
+  not be verified from the dev environment; confirm in the field. Revisit if
+  the resolution is too coarse for Phase 3 hole images.
 - **Cloud database:** confirm Supabase free-tier limits still fit (row count,
   pause-after-inactivity rules) before Phase 2.
 - **Arccos baseline:** David must capture club averages and any round data he
@@ -176,15 +197,22 @@ Update the Status column when a phase changes state.
 ## 10. Repository layout (current)
 
 ```
-/                     Phase 0 GPS spike (served by GitHub Pages)
-├── index.html
-├── style.css
-├── app.js            GPS sampling, stats, export
-├── sw.js             service worker (caches app files only, never location data)
+/                       Phase 1 shot tracker (served by GitHub Pages)
+├── index.html, style.css
+├── js/
+│   ├── app.js          screen logic
+│   ├── round.js        round data + distance rules (pure, unit-tested)
+│   ├── geo.js          GPS sampling, haversine
+│   ├── store.js        localStorage + CSV/JSON export
+│   └── map.js          Leaflet satellite map + shot pins
+├── vendor/leaflet/     Leaflet 1.9.4 (vendored so it works offline)
+├── gps-test/           Phase 0 GPS accuracy test + its README
+├── tests/              unit tests: node --test tests/*.test.mjs
+├── sw.js               service worker (caches app files only, never location data)
 ├── manifest.webmanifest
 ├── icons/
-├── README.md         setup + field test guide for Phase 0
-└── CLAUDE.md         this file
+├── README.md           how to use the tracker + Phase 1 field test
+└── CLAUDE.md           this file
 ```
 
 When the service worker's cached files change, bump `CACHE_NAME` in `sw.js`
