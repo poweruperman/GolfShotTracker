@@ -146,7 +146,7 @@ courses: id, name, osm_id, center_lat, center_lon, image_status
 
 | Phase | Deliverable | Field test | Status |
 |---|---|---|---|
-| 0. GPS spike | Single-page PWA, one button that logs position + accuracy, installed to home screen | Stand at a tee marker 5 times; check scatter | **Built, not yet field-tested** |
+| 0. GPS spike | Single-page PWA, one button that logs position + accuracy, installed to home screen | Stand at a tee marker 5 times; check scatter | **Installed on iPhone; GPS works indoors. Outdoor scatter test pending** |
 | 1. Tracker MVP | Club buttons, hole/shot counter, distance between presses, holed-out + putt counter, local queue | Play 3 holes; compare distances with yardage markers | Not started |
 | 2. Cloud sync | Supabase tables, sync queue, CSV export | Airplane mode mid-hole, reconnect; no shots lost | Not started |
 | 3. Course images (one course) | Overpass fetch, coverage report, per-hole images for one home course | Compare with the course's scorecard map | Not started |
