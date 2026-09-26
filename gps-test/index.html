@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- viewport-fit=cover lets the layout use the full iPhone screen, including around the notch -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Golf GPS Spike</title>
+
+  <!-- PWA install metadata -->
+  <link rel="manifest" href="../manifest.webmanifest">
+  <meta name="theme-color" content="#1f5f3a">
+
+  <!-- iOS-specific: iOS uses these instead of parts of the manifest -->
+  <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="GPS Spike">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1><a href="../" class="back">‹</a> GPS Test</h1>
+    <span id="appMode" class="pill">checking…</span>
+  </header>
+
+  <!-- Shown only when the page is open in Safari instead of from the home screen -->
+  <section id="installHint" class="card hint" hidden>
+    <strong>Install first:</strong> tap the Share button, then
+    <em>Add to Home Screen</em>, then open the app from its icon.
+  </section>
+
+  <main>
+    <!-- Reminder that drives how the real tracker must be used -->
+    <section class="card rule">
+      <strong>Stand on the spot, then tap.</strong>
+      The app records where the <em>phone</em> is, so press only when you
+      are standing at the ball or marker, not from the cart.
+    </section>
+
+    <section class="card">
+      <label for="label">Spot label (optional)</label>
+      <input id="label" type="text" placeholder="e.g. Hole 1 white tee marker" autocomplete="off">
+
+      <button id="recordBtn" class="big">Record position</button>
+
+      <!-- Live feedback while the GPS is being sampled -->
+      <div id="progress" class="progress" hidden>
+        <div class="bar"><div id="progressFill"></div></div>
+        <p id="progressText">Sampling GPS…</p>
+      </div>
+
+      <p id="message" class="message" role="status"></p>
+    </section>
+
+    <section class="card" id="lastCard" hidden>
+      <h2>Last reading</h2>
+      <p class="accuracy-line">
+        Accuracy <span id="lastAccuracy" class="badge"></span>
+      </p>
+      <dl class="grid">
+        <dt>Samples kept from</dt><dd id="lastSamples"></dd>
+        <dt>From previous reading</dt><dd id="lastFromPrev"></dd>
+        <dt>Time</dt><dd id="lastTime"></dd>
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2>Current test <span id="testNo" class="pill"></span></h2>
+      <p class="small">Scatter across readings taken at the same spot.
+        Tap <em>New test</em> before moving to a different spot.</p>
+      <dl class="grid">
+        <dt>Readings</dt><dd id="statCount">0</dd>
+        <dt>Average accuracy</dt><dd id="statAvgAcc">–</dd>
+        <dt>Worst distance from average point</dt><dd id="statMaxFromMean">–</dd>
+        <dt>Widest spread (any two readings)</dt><dd id="statSpread">–</dd>
+      </dl>
+    </section>
+
+    <section class="card controls">
+      <button id="newTestBtn">New test</button>
+      <button id="undoBtn">Undo last</button>
+      <button id="wakeBtn">Keep screen on: off</button>
+      <button id="exportCsvBtn">Export CSV</button>
+      <button id="exportJsonBtn">Export JSON</button>
+      <button id="clearBtn" class="danger">Clear all</button>
+    </section>
+
+    <section class="card">
+      <h2>All readings</h2>
+      <ol id="list" reversed></ol>
+    </section>
+  </main>
+
+  <footer class="small">
+    Readings stay on this phone until you export them. Export after every test.
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

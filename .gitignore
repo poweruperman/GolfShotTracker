@@ -1,0 +1,9 @@
+# Exports and secrets must never be committed: this repository is public
+# and exports contain real GPS positions. See CLAUDE.md section 8.
+*.csv
+*.json
+.env
+.env.*
+
+# macOS folder metadata
+.DS_Store

@@ -1,7 +1,7 @@
 {
-  "name": "Golf GPS Spike",
-  "short_name": "GPS Spike",
-  "description": "Phase 0 test: record GPS position and accuracy for the golf shot tracker.",
+  "name": "Golf Shot Tracker",
+  "short_name": "Shot Tracker",
+  "description": "Track each golf shot: club, GPS position and distance, on a satellite map.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

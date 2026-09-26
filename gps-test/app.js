@@ -424,7 +424,7 @@ function init() {
 
   // The service worker caches the app so it opens with weak or no signal.
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => { /* app still works online */ });
+    navigator.serviceWorker.register('../sw.js').catch(() => { /* app still works online */ });
   }
 
   render();
