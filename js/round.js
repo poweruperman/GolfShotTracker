@@ -188,6 +188,8 @@ export function bestInsertIndex(round, holeNo, lat, lon) {
 
 // Add a shot the player forgot to record, at a spot tapped on the map.
 export function insertShot(round, { holeNo, club, lat, lon, index = null, now = new Date() }) {
+  // Work out the position before adding the shot, so it isn't compared with itself.
+  const at = index == null ? bestInsertIndex(round, holeNo, lat, lon) : index;
   const shot = {
     id: newId(),
     hole_no: holeNo,
@@ -203,7 +205,7 @@ export function insertShot(round, { holeNo, club, lat, lon, index = null, now = 
     added_by_hand: true,
   };
   round.shots.push(shot);
-  moveShot(round, shot.id, index == null ? bestInsertIndex(round, holeNo, lat, lon) : index);
+  moveShot(round, shot.id, at);
   return shot;
 }
 
