@@ -7,7 +7,7 @@
  * fetch a fresh copy in the background for next time. After you publish an
  * update, open the app twice to see it (or bump CACHE_NAME below).
  */
-const CACHE_NAME = 'shot-tracker-v2';
+const CACHE_NAME = 'shot-tracker-v3';
 const APP_FILES = [
   './',
   './index.html',
