@@ -174,6 +174,19 @@ one constant, `SAMPLE_MS` in `js/geo.js`, to be tuned from the test results.
 - Storage is one JSON document in `localStorage` (`js/store.js`). Cloud sync
   (Phase 2) should copy these same records.
 
+**UI (2026-09-27):** layout modeled on how the Arccos app *works* (full-screen
+hole map, hole tabs, bottom bar with score and putts, shot list, add/move
+shots, scorecard), using David's screenshots as reference only. Rules:
+own look, **white accent on a dark theme** (David's choice), no Arccos
+name, logo, icons or colors, and never commit Arccos screenshots (their
+design, and they show David's locations).
+- **Next shot** opens a slide-up club picker so the map stays visible
+  (David's choice over always-visible club buttons).
+- Shot order is the player's order (`shot_no`), editable with ↑ ↓; a missed
+  shot added on the map is inserted where it adds the least path length.
+- Fairway and GIR are marked by hand on the scorecard until course outlines
+  exist; par is entered by hand until course data exists.
+
 Update the Status column when a phase changes state.
 
 ### Open items
@@ -189,6 +202,13 @@ Update the Status column when a phase changes state.
   pause-after-inactivity rules) before Phase 2.
 - **Arccos baseline:** David must capture club averages and any round data he
   wants to keep before the subscription ends (screenshots are the only export).
+- **Course hole images:** David's separate course-images project is
+  producing tee-at-bottom hole images. A prompt was sent asking it for the
+  four corner coordinates, rotation, projection, hole data (par, tee, green
+  front/center/back, outlines) and imagery rights, exported as
+  `courses/<course-id>/course.json` + `hole-NN.jpg`. When it arrives: show the
+  hole image instead of the satellite map, with shots placed via the corner
+  coordinates; fill par automatically; auto-mark fairway/GIR from outlines.
 - **Pin position:** decide later whether to track distance to the pin (needs a
   green position per day) or only shot-to-shot distance.
 - **iOS location prompt:** home-screen web apps may re-ask for location

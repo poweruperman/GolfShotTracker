@@ -7,29 +7,29 @@ page installed to the iPhone home screen, with no App Store and no subscription.
 
 ## How it works on the course
 
-1. **Stand at the ball** (not the cart) and tap the club you're about to hit.
-   The app listens to the GPS for 5 seconds and saves the most accurate
-   reading, with the date and time.
-2. When you tap the next club at your next ball, the previous shot's
+1. **Stand at the ball** (not the cart), tap **Next shot**, and pick the club
+   you're about to hit from the panel that slides up. The app listens to the
+   GPS for 5 seconds and saves the most accurate reading, with date and time.
+2. When you record the next shot at your next ball, the previous shot's
    **distance is calculated and saved automatically**.
-3. On the green, tap **Putt +** for each putt. The **first** putt also records
-   where the ball is, which gives your approach shot its distance.
+3. On the green, tap **+** under PUTTS for each putt. The **first** putt also
+   records where the ball is, which gives your approach shot its distance.
 4. Tap **Finish hole ›** to close the hole and move to the next one.
-5. **Shots** lists every shot of the round in order. Tap one to change the
-   club or hole, mark it *Exclude from stats*, or delete it. Distances
-   recalculate by themselves.
 
-Distances are from one tap to the next: **carry + roll, not carry**. Phone GPS
-is off by a few meters per reading, so one shot can be off by 5–10 yards.
+Distances are from one shot to the next: **carry + roll, not carry**. Phone
+GPS is off by a few meters per reading, so one shot can be off by 5–10 yards.
 Averages over many shots are the reliable number.
 
 | Screen part | What it does |
 |---|---|
-| Hole bar `‹ Hole 3 ›` | Current hole and its score. Arrows change the hole if you forgot to finish one |
-| Map | Satellite photo with this hole's shots numbered, joined by a line and labeled with club and distance. ⚑ marks the ball on the green |
-| Status box | Result of your last tap, and the GPS accuracy (red ⚑ = worse than 10 m) |
-| Club buttons | Your bag. Change them in **••• → My bag** |
-| ••• menu | Keep screen on, export this round, My bag, GPS test, End round |
+| Top bar | ☰ menu, course and date, and your score vs par (tap it for the scorecard) |
+| Hole tabs `1 2 3 …` | Jump to a hole. New shots go on the hole shown |
+| Map | Satellite photo with a white line along your shots; each shot shows its club and distance. ⚑ marks the ball on the green with the putt count |
+| Bottom bar | This hole's score vs par (tap for the scorecard), putts − n +, **Next shot** |
+| **EDIT** button | This hole's shots: ↑ ↓ to fix the order, **+ Add a missed shot** (tap the map where it was hit), tap a shot to change club/hole, exclude it from stats, **move it on the map** or delete it |
+| Tap a shot on the map | Same edit options for that shot |
+| Scorecard | Par, score, fairway, GIR and putts per hole. Tap Par to set 3/4/5, tap Fairway (✓ ← →) and GIR (✓ ✗) to mark them, +/− for putts, tap a score to go to that hole |
+| ☰ menu | Keep screen on, export this round, My bag, GPS test, End round |
 
 ## Where the data lives
 
@@ -68,13 +68,16 @@ needs signal to load new map areas; recording shots works without signal.
    - the yardage-marker shot's distance against the marker (150 minus what's
      left to the green center);
    - whether the satellite map is sharp or blurry when zoomed in, or grey;
-   - whether iOS asked for location permission again, and how often.
+   - whether iOS asked for location permission again, and how often;
+   - after the round: try EDIT → add a missed shot, drag a shot, reorder two
+     shots, and fill in par/fairway/GIR on the scorecard.
 3. **What a pass looks like:** every shot saved with a distance; the marker
    check within about 10 yd; pins on the right spots on the map; nothing lost
    after closing and reopening the app mid-hole.
 4. **What to send back:** screenshots of the map and the Shots list for each
    hole, the marker-check numbers, and notes on the map and permission
-   prompts. Don't send or commit the CSV (it holds your real locations).
+   prompts, and anything in the new screens that was awkward to use. Don't
+   send or commit the CSV (it holds your real locations).
 
 The Phase 0 **GPS test** (accuracy scatter) is still in the app: ••• → GPS test.
 Its guide is in [`gps-test/README.md`](gps-test/README.md).
