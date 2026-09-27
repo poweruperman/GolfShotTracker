@@ -8,11 +8,11 @@
 
   <!-- PWA install metadata -->
   <link rel="manifest" href="manifest.webmanifest">
-  <meta name="theme-color" content="#1f5f3a">
+  <meta name="theme-color" content="#0f1113">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Shot Tracker">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
 
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="style.css">
@@ -20,8 +20,8 @@
 <body>
 
   <!-- ============ Start screen (no round in progress) ============ -->
-  <section id="startScreen" hidden>
-    <header><h1>Golf Shot Tracker</h1></header>
+  <section id="startScreen" class="page" hidden>
+    <header class="page-header"><h1>Golf Shot Tracker</h1></header>
 
     <div class="card">
       <h2>New round</h2>
@@ -29,7 +29,7 @@
       <input id="courseInput" type="text" placeholder="e.g. Home course" autocomplete="off">
       <label for="startHoleInput">Starting hole</label>
       <select id="startHoleInput"></select>
-      <button id="startBtn" class="big">Start round</button>
+      <button id="startBtn" class="primary big">Start round</button>
       <p class="small">Starting a round turns on <em>Keep screen on</em>. That uses
         extra battery: the screen and GPS are the two biggest drains on a phone.</p>
     </div>
@@ -50,64 +50,80 @@
   </section>
 
   <!-- ============ Round screen ============ -->
-  <section id="roundScreen" hidden>
-    <header class="round-header">
-      <div>
+  <section id="roundScreen" class="round" hidden>
+    <header class="topbar">
+      <button id="menuBtn" class="icon-btn" aria-label="Menu">☰</button>
+      <div class="topbar-title">
         <div id="courseName" class="course"></div>
-        <div id="roundTotal" class="small"></div>
+        <div id="roundDate" class="small"></div>
       </div>
-      <button id="menuBtn" aria-label="Menu">•••</button>
+      <button id="scoreChip" class="score-chip" aria-label="Scorecard"></button>
     </header>
 
-    <div class="hole-bar">
-      <button id="prevHoleBtn" aria-label="Previous hole">‹</button>
-      <div>
-        <div class="hole-title">Hole <span id="holeNo"></span></div>
-        <div id="holeSummary" class="small"></div>
+    <nav id="holeTabs" class="hole-tabs" aria-label="Holes"></nav>
+
+    <div class="map-wrap">
+      <div id="map"></div>
+
+      <!-- Messages: GPS progress, last shot result, edit-mode instructions -->
+      <div id="banner" class="banner" hidden>
+        <div id="bannerText"></div>
+        <div id="progress" class="progress" hidden><div id="progressFill"></div></div>
+        <div id="bannerActions" class="banner-actions" hidden>
+          <button id="bannerCancelBtn">Cancel</button>
+          <button id="bannerDoneBtn" class="primary">Done</button>
+        </div>
       </div>
-      <button id="nextHoleBtn" aria-label="Next hole">›</button>
-    </div>
 
-    <div id="map"></div>
-
-    <!-- Result of the last press, and live progress while the GPS samples -->
-    <div id="status" class="status">
-      <div id="statusText">Stand at the ball, then tap the club you're about to hit.</div>
-      <div id="progress" class="progress" hidden><div id="progressFill"></div></div>
-    </div>
-
-    <p class="rule small"><strong>Stand at the ball</strong>, not the cart, then tap
-      the club you're about to hit. Distances are to where you next tap
-      (carry + roll), <strong>not carry</strong>.</p>
-
-    <div id="clubGrid" class="club-grid"></div>
-
-    <div class="putt-row card">
-      <div>
-        <div class="putt-label">Putts</div>
-        <div class="small">First tap marks the ball on the green</div>
+      <div class="fabs">
+        <button id="finishHoleBtn" class="fab-pill">Finish hole ›</button>
+        <button id="editBtn" class="fab" aria-label="Edit shots">✎<span>EDIT</span></button>
       </div>
-      <button id="puttMinusBtn" aria-label="Remove putt">−</button>
-      <span id="puttCount" class="putt-count">0</span>
-      <button id="puttPlusBtn" aria-label="Add putt">+</button>
     </div>
 
-    <div class="row">
-      <button id="shotListBtn">Shots</button>
-      <button id="finishHoleBtn" class="primary">Finish hole ›</button>
-    </div>
+    <footer class="bottombar">
+      <button id="scoreBox" class="bb-cell score-box" aria-label="Scorecard">
+        <strong id="holeScore"></strong>
+        <span id="holeScoreLabel" class="bb-label">SCORE</span>
+      </button>
+      <div class="bb-cell putts">
+        <button id="puttMinusBtn" class="putt-btn" aria-label="Remove putt">−</button>
+        <div>
+          <strong id="puttCount">0</strong>
+          <span class="bb-label">PUTTS</span>
+        </div>
+        <button id="puttPlusBtn" class="putt-btn" aria-label="Add putt">+</button>
+      </div>
+      <button id="nextShotBtn" class="bb-cell next-shot">Next<br>shot</button>
+    </footer>
   </section>
 
-  <!-- ============ Dialogs ============ -->
+  <!-- ============ Bottom sheets (slide up) ============ -->
+  <div id="sheetBackdrop" class="sheet-backdrop" hidden></div>
 
-  <dialog id="shotListDialog">
-    <h2>Shots this round</h2>
-    <p class="small">Tap a shot to change its club or hole, exclude it from
-      stats (penalty drop, mulligan, provisional, punch-out), or delete it.
-      Distances update automatically.</p>
-    <div id="shotList"></div>
-    <form method="dialog"><button class="big">Done</button></form>
-  </dialog>
+  <!-- Pick the club for the next shot (or for a missed shot being added) -->
+  <div id="clubSheet" class="sheet" role="dialog" aria-labelledby="clubSheetTitle">
+    <div class="sheet-grip"></div>
+    <h2 id="clubSheetTitle">Next shot</h2>
+    <p id="clubSheetHint" class="small">Stand at your ball, then tap the club
+      you're about to hit. Distance is to where you next tap (carry + roll),
+      not carry.</p>
+    <div id="clubGrid" class="club-grid"></div>
+    <button class="sheet-close">Cancel</button>
+  </div>
+
+  <!-- This hole's shots: reorder, edit, add a missed one -->
+  <div id="editSheet" class="sheet tall" role="dialog" aria-labelledby="editSheetTitle">
+    <div class="sheet-grip"></div>
+    <h2 id="editSheetTitle">Hole shots</h2>
+    <p class="small">Use ↑ ↓ to fix the order. Tap a shot to change its club,
+      exclude it from stats, move it on the map or delete it.</p>
+    <ol id="shotList" class="plain shot-list"></ol>
+    <button id="addShotBtn" class="primary">+ Add a missed shot</button>
+    <button class="sheet-close">Done</button>
+  </div>
+
+  <!-- ============ Dialogs ============ -->
 
   <dialog id="editShotDialog">
     <h2 id="editTitle">Edit shot</h2>
@@ -116,12 +132,29 @@
     <select id="editClub"></select>
     <label for="editHole">Hole</label>
     <select id="editHole"></select>
-    <label class="check"><input id="editExclude" type="checkbox"> Exclude from stats</label>
+    <label class="check"><input id="editExclude" type="checkbox"> Exclude from stats
+      <span class="small">(penalty drop, mulligan, provisional, punch-out)</span></label>
     <div class="row">
-      <button id="editSaveBtn" class="primary">Save</button>
       <button id="editCancelBtn">Cancel</button>
+      <button id="editSaveBtn" class="primary">Save</button>
     </div>
+    <button id="editMoveBtn">Move on map</button>
     <button id="editDeleteBtn" class="danger">Delete shot</button>
+  </dialog>
+
+  <dialog id="scorecardDialog" class="fullscreen">
+    <div class="sc-head">
+      <div>
+        <div id="scCourse" class="course"></div>
+        <div id="scDate" class="small"></div>
+      </div>
+      <div id="scTotal" class="sc-total"></div>
+    </div>
+    <p class="small">Tap Par to set it (3, 4, 5). Tap Fairway and GIR to mark
+      them. Tap a score to go to that hole.</p>
+    <div id="scTables"></div>
+    <div id="scSummary" class="sc-summary"></div>
+    <form method="dialog"><button class="primary big">Close</button></form>
   </dialog>
 
   <dialog id="menuDialog">
@@ -132,17 +165,17 @@
     <button id="menuBagBtn">My bag</button>
     <a class="button" href="gps-test/">GPS test</a>
     <button id="endRoundBtn" class="danger">End round</button>
-    <form method="dialog"><button class="big">Close</button></form>
+    <form method="dialog"><button class="primary big">Close</button></form>
   </dialog>
 
   <dialog id="bagDialog">
     <h2>My bag</h2>
     <p class="small">Clubs shown as buttons, in this order. One per line.
-      Keep names short (e.g. Dr, 3W, 4H, 7i, PW, 56°).</p>
+      Keep names short (e.g. Dr, 3W, 4H, 7i, PW, 52°).</p>
     <textarea id="bagText" rows="14"></textarea>
     <div class="row">
-      <button id="bagSaveBtn" class="primary">Save</button>
       <button id="bagResetBtn">Reset to default</button>
+      <button id="bagSaveBtn" class="primary">Save</button>
     </div>
     <form method="dialog"><button class="big">Close</button></form>
   </dialog>

@@ -1,14 +1,17 @@
 /*
- * Golf Shot Tracker (Phase 1): the screen logic.
+ * Golf Shot Tracker: the screen logic.
  *
  * Flow on the course:
- *   1. Stand at the ball, tap the club you're about to hit. The app samples
- *      the GPS for a few seconds and saves the shot with its position.
+ *   1. Stand at the ball, tap "Next shot", pick the club. The app samples the
+ *      GPS for a few seconds and saves the shot with its position.
  *   2. The previous shot's distance is filled in automatically: it's the
- *      distance from where it was tapped to where this one was tapped.
- *   3. On the green, tap Putt +. The first putt also records the ball's
+ *      distance from where it was hit to where this one is hit.
+ *   3. On the green, tap Putts +. The first putt also records the ball's
  *      position, which gives the approach shot its distance.
- *   4. Finish hole moves on to the next hole.
+ *   4. "Finish hole" moves on to the next hole.
+ *
+ * Editing afterwards (the EDIT button): reorder shots, add a missed shot by
+ * tapping the map, drag a shot to where it really was, change clubs.
  *
  * The data rules live in round.js; storage in store.js; the map in map.js.
  */
@@ -17,76 +20,142 @@ import { sampleBestPosition, geoErrorText, accuracyClass, toYd, FLAG_ACCURACY_M,
 import {
   DEFAULT_BAG, HOLES, newRound, hole, shotsOnHole, addShot, editShot, deleteShot, findShot,
   setHoleEnd, addPutt, removePutt, holeSummary, finishHole, totalStrokes, shotsToCsv,
-  nextHoleNo, prevHoleNo, finishedHoleCount,
+  nextHoleNo, finishedHoleCount, moveShot, insertShot, setShotPosition,
+  setPar, setFairway, setGir, scoreToPar, fmtToPar, toParWords,
 } from './round.js';
 import { load, save, activeRound, saveFile } from './store.js';
-import { createMap, refreshSize, centerOn, showMe, drawHole } from './map.js';
+import { createMap, refreshSize, centerOn, showMe, drawHole, onMapTap } from './map.js';
 
 const $ = (id) => document.getElementById(id);
 
 let state = load();
-let busy = false;          // true while the GPS is being sampled
+let busy = false;           // true while the GPS is being sampled
 let mapReady = false;
-let editingShotId = null;
+let editingShotId = null;   // shot open in the edit dialog
+let clubPurpose = 'shot';   // what the club sheet is picking for: 'shot' or 'add'
+let pendingAdd = null;      // {lat, lon} tapped for a missed shot
+let movingShotId = null;    // shot being dragged on the map
+let pendingMove = null;     // {lat, lon} where it was dropped
+let bannerTimer = null;
 let wakeLock = null;
 let wantWakeLock = false;
 
-const fmtYd = (m) => `${Math.round(toYd(m))} yd`;
+const fmtYds = (m) => `${Math.round(toYd(m))} yds`;
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 function persist() {
-  if (!save(state)) showStatus('Could not save on this phone. Export now so nothing is lost.', true);
+  if (!save(state)) showBanner('Could not save on this phone. Export now so nothing is lost.', { error: true, persist: true });
 }
 
-// ---- Status line -------------------------------------------------------------
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (ch) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
 
-function showStatus(html, isError = false) {
-  $('statusText').innerHTML = html;
-  $('status').classList.toggle('error', isError);
+// ---- Banner (messages over the map) -------------------------------------------------
+
+/*
+ * opts.persist keeps it up until replaced; otherwise it hides after 7 s.
+ * opts.actions shows Cancel/Done buttons: { onCancel, onDone } (Done optional).
+ */
+function showBanner(html, opts = {}) {
+  clearTimeout(bannerTimer);
+  $('bannerText').innerHTML = html;
+  $('banner').classList.toggle('error', !!opts.error);
+  $('banner').hidden = false;
+  const acts = opts.actions;
+  $('bannerActions').hidden = !acts;
+  if (acts) {
+    $('bannerDoneBtn').hidden = !acts.onDone;
+    $('bannerCancelBtn').onclick = acts.onCancel;
+    $('bannerDoneBtn').onclick = acts.onDone || null;
+  }
+  if (!opts.persist && !acts) bannerTimer = setTimeout(hideBanner, 7000);
+}
+
+function hideBanner() {
+  clearTimeout(bannerTimer);
+  $('banner').hidden = true;
+  $('progress').hidden = true;
 }
 
 function setBusy(on, label = '') {
   busy = on;
-  document.querySelectorAll('#clubGrid button, #puttPlusBtn, #finishHoleBtn')
-    .forEach((b) => { b.disabled = on; });
+  ['nextShotBtn', 'puttPlusBtn', 'finishHoleBtn', 'editBtn'].forEach((id) => { $(id).disabled = on; });
   $('progress').hidden = !on;
   if (on) {
     $('progressFill').style.width = '0%';
-    showStatus(`<strong>Hold still…</strong> ${label}`);
+    showBanner(`<strong>Hold still…</strong> ${label}`, { persist: true });
   }
 }
 
-// Sample the GPS with a progress bar. Resolves to a position, or null on failure
-// (with the reason shown on screen).
+// Sample the GPS with a progress bar. Resolves to a position, or null on
+// failure (with the reason shown on screen).
 async function takeReading(label) {
   setBusy(true, label);
   try {
-    return await sampleBestPosition((bestAcc, n, elapsed) => {
+    const pos = await sampleBestPosition((bestAcc, n, elapsed) => {
       $('progressFill').style.width = Math.min(100, (elapsed / SAMPLE_MS) * 100) + '%';
-      showStatus(`<strong>Hold still…</strong> ${label} · ${n} fix${n === 1 ? '' : 'es'}, best ±${bestAcc.toFixed(1)} m`);
+      $('bannerText').innerHTML =
+        `<strong>Hold still…</strong> ${label} · ${n} fix${n === 1 ? '' : 'es'}, best ±${bestAcc.toFixed(1)} m`;
     });
-  } catch (err) {
-    showStatus(geoErrorText(err), true);
-    return null;
-  } finally {
     setBusy(false);
+    return pos;
+  } catch (err) {
+    setBusy(false);
+    showBanner(geoErrorText(err), { error: true });
+    return null;
   }
 }
 
 function accuracyNote(pos) {
-  const cls = accuracyClass(pos.accuracy_m);
   const flag = pos.accuracy_m > FLAG_ACCURACY_M ? ' ⚑ poor GPS' : '';
-  return `<span class="badge ${cls}">±${pos.accuracy_m.toFixed(1)} m${flag}</span>`;
+  return `<span class="badge ${accuracyClass(pos.accuracy_m)}">±${pos.accuracy_m.toFixed(1)} m${flag}</span>`;
 }
 
-// ---- Actions ---------------------------------------------------------------------
+// ---- Bottom sheets ---------------------------------------------------------------------
 
-async function onClub(club) {
+function openSheet(id) {
+  closeSheets();
+  $('sheetBackdrop').hidden = false;
+  $(id).classList.add('open');
+}
+
+function closeSheets() {
+  document.querySelectorAll('.sheet.open').forEach((el) => el.classList.remove('open'));
+  $('sheetBackdrop').hidden = true;
+}
+
+function openClubSheet(purpose) {
+  clubPurpose = purpose;
+  $('clubSheetTitle').textContent = purpose === 'add' ? 'Missed shot: which club?' : 'Next shot';
+  $('clubSheetHint').hidden = purpose === 'add';
+  const grid = $('clubGrid');
+  grid.innerHTML = '';
+  for (const club of state.bag) {
+    const b = document.createElement('button');
+    b.textContent = club;
+    b.addEventListener('click', () => onClubPicked(club));
+    grid.appendChild(b);
+  }
+  openSheet('clubSheet');
+}
+
+function onClubPicked(club) {
+  closeSheets();
+  if (clubPurpose === 'add') addMissedShot(club);
+  else recordShot(club);
+}
+
+// ---- Recording on the course -------------------------------------------------------------
+
+async function recordShot(club) {
   const round = activeRound(state);
   if (busy || !round) return;
   if (wantWakeLock) requestWakeLock(); // a tap is a good moment to re-take it
 
-  const pos = await takeReading(`recording ${club}`);
+  const pos = await takeReading(`recording ${escapeHtml(club)}`);
   if (!pos) {
     // Keep the stroke for the score even when the GPS fails.
     if (!confirm(`No GPS position. Record the ${club} shot anyway?\n(It counts for your score but gets no distance.)`)) return;
@@ -95,19 +164,19 @@ async function onClub(club) {
   persist();
 
   const prev = shotsOnHole(round, shot.hole_no).find((s) => s.shot_no === shot.shot_no - 1);
-  let msg = `Shot ${shot.shot_no} · <strong>${club}</strong> saved ` + (pos ? accuracyNote(pos) : '(no GPS)');
+  let msg = `Shot ${shot.shot_no} · <strong>${escapeHtml(club)}</strong> saved ` + (pos ? accuracyNote(pos) : '(no GPS)');
   if (prev) {
-    msg += `<br>Shot ${prev.shot_no} · ${prev.club}: <strong>${prev.distance_m == null ? 'no distance' : fmtYd(prev.distance_m)}</strong>`;
+    msg += `<br>Shot ${prev.shot_no} · ${escapeHtml(prev.club)}: <strong>${prev.distance_m == null ? 'no distance' : fmtYds(prev.distance_m)}</strong>`;
   }
-  showStatus(msg, !!pos && pos.accuracy_m > FLAG_ACCURACY_M);
   if (pos) showMe(pos.lat, pos.lon);
   render();
+  showBanner(msg, { error: !!pos && pos.accuracy_m > FLAG_ACCURACY_M });
 }
 
 // The last full shot's destination: ball on the green, or the cup on a chip-in.
 async function recordHoleEnd(round, label) {
   const pos = await takeReading(label);
-  if (!pos) return false;
+  if (!pos) return null;
   setHoleEnd(round, round.current_hole, pos);
   showMe(pos.lat, pos.lon);
   return pos;
@@ -120,17 +189,22 @@ async function onPuttPlus() {
   const needsEnd = h.putts === 0 && !h.end && shotsOnHole(round, round.current_hole).length > 0;
 
   let msg = '';
+  let error = false;
   if (needsEnd) {
     const pos = await recordHoleEnd(round, 'marking the ball on the green');
     const last = shotsOnHole(round, round.current_hole).slice(-1)[0];
-    msg = pos
-      ? `Ball on green ${accuracyNote(pos)}<br>Shot ${last.shot_no} · ${last.club}: <strong>${last.distance_m == null ? 'no distance' : fmtYd(last.distance_m)}</strong>`
-      : 'Putt counted. The ball position was not recorded, so the last shot has no distance.';
+    if (pos) {
+      msg = `Ball on green ${accuracyNote(pos)}<br>Shot ${last.shot_no} · ${escapeHtml(last.club)}: ` +
+        `<strong>${last.distance_m == null ? 'no distance' : fmtYds(last.distance_m)}</strong>`;
+    } else {
+      msg = 'Putt counted. The ball position was not recorded, so the last shot has no distance.';
+      error = true;
+    }
   }
   addPutt(round, round.current_hole);
   persist();
   render();
-  if (msg) showStatus(msg, msg.startsWith('Putt counted'));
+  if (msg) showBanner(msg, { error });
 }
 
 function onPuttMinus() {
@@ -163,20 +237,283 @@ async function onFinishHole() {
   finishHole(round);
   persist();
   render();
-  showStatus(`Hole ${n} done: <strong>${sum.strokes}</strong> strokes (${sum.putts} putt${sum.putts === 1 ? '' : 's'}). ` +
-    `Now on hole ${round.current_hole}.`);
+  const vsPar = sum.par ? ` (${toParWords(sum.strokes - sum.par)})` : '';
+  showBanner(`Hole ${n}: <strong>${sum.strokes}</strong> strokes${vsPar}, ${plural(sum.putts, 'putt')}. Now on hole ${round.current_hole}.`);
 
   if (finishedHoleCount(round) >= HOLES && confirm('That was your 18th hole. End the round?')) endRound();
 }
 
-function changeHole(step) {
+function goToHole(n) {
   const round = activeRound(state);
-  if (busy || !round) return;
-  round.current_hole = step > 0 ? nextHoleNo(round.current_hole) : prevHoleNo(round.current_hole);
+  if (busy || !round || movingShotId || pendingAdd) return;
+  round.current_hole = n;
   persist();
   render();
-  showStatus(`Now on hole ${round.current_hole}. New shots go on this hole.`);
 }
+
+// ---- Editing: shot list, reorder, add missed shot, move on map ------------------------------
+
+function openEditSheet() {
+  renderShotList();
+  openSheet('editSheet');
+}
+
+function renderShotList() {
+  const round = activeRound(state);
+  if (!round) return;
+  const n = round.current_hole;
+  const shots = shotsOnHole(round, n);
+  $('editSheetTitle').textContent = `Hole ${n} shots`;
+  const ol = $('shotList');
+  ol.innerHTML = '';
+  if (!shots.length) ol.innerHTML = '<li class="small">No shots on this hole yet.</li>';
+  shots.forEach((s, i) => {
+    const notes = [
+      s.accuracy_m == null ? (s.added_by_hand ? 'added by hand' : 'no GPS') : `±${s.accuracy_m.toFixed(0)} m`,
+      fmtTime(s.recorded_at),
+      s.moved_by_hand ? 'moved' : '',
+      s.exclude_from_stats ? 'excluded' : '',
+    ].filter(Boolean).join(' · ');
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <button class="shot-main${s.exclude_from_stats ? ' excluded' : ''}">
+        <span class="shot-badge">${escapeHtml(s.club)}</span>
+        <span><span class="shot-dist">${s.distance_m == null ? '–' : fmtYds(s.distance_m)}</span>
+          <span class="shot-meta">Shot ${s.shot_no} · ${notes}</span></span>
+      </button>
+      <button class="order-btn up" aria-label="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
+      <button class="order-btn down" aria-label="Move down" ${i === shots.length - 1 ? 'disabled' : ''}>↓</button>`;
+    li.querySelector('.shot-main').addEventListener('click', () => openEditShot(s.id));
+    li.querySelector('.up').addEventListener('click', () => reorder(s.id, i - 1));
+    li.querySelector('.down').addEventListener('click', () => reorder(s.id, i + 1));
+    ol.appendChild(li);
+  });
+}
+
+function reorder(shotId, newIndex) {
+  moveShot(activeRound(state), shotId, newIndex);
+  persist();
+  render();
+  renderShotList();
+}
+
+function startAddMissedShot() {
+  closeSheets();
+  showBanner('<strong>Add a missed shot:</strong> tap the map where that shot was hit.', {
+    actions: { onCancel: endAddMissedShot },
+  });
+  onMapTap((lat, lon) => {
+    pendingAdd = { lat, lon };
+    onMapTap(null);
+    openClubSheet('add');
+  });
+}
+
+function addMissedShot(club) {
+  const round = activeRound(state);
+  if (!round || !pendingAdd) return;
+  const shot = insertShot(round, { holeNo: round.current_hole, club, lat: pendingAdd.lat, lon: pendingAdd.lon });
+  persist();
+  endAddMissedShot();
+  render(false);
+  showBanner(`Added <strong>${escapeHtml(club)}</strong> as shot ${shot.shot_no}. Wrong place in the order? Use EDIT → ↑ ↓.`);
+}
+
+function endAddMissedShot() {
+  pendingAdd = null;
+  onMapTap(null);
+  hideBanner();
+}
+
+function startMoveShot(shotId) {
+  movingShotId = shotId;
+  pendingMove = null;
+  closeSheets();
+  render(false);
+  showBanner('<strong>Drag the large pin</strong> to where the ball really was, then tap Done.', {
+    actions: {
+      onCancel: () => endMoveShot(false),
+      onDone: () => endMoveShot(true),
+    },
+  });
+}
+
+function endMoveShot(keep) {
+  const round = activeRound(state);
+  if (keep && pendingMove && round) {
+    setShotPosition(round, movingShotId, pendingMove.lat, pendingMove.lon);
+    persist();
+  }
+  movingShotId = null;
+  pendingMove = null;
+  hideBanner();
+  render(false);
+}
+
+function fillSelect(sel, values, selected) {
+  sel.innerHTML = '';
+  for (const v of values) {
+    const o = document.createElement('option');
+    o.value = v;
+    o.textContent = v;
+    if (String(v) === String(selected)) o.selected = true;
+    sel.appendChild(o);
+  }
+}
+
+function openEditShot(shotId) {
+  const round = activeRound(state);
+  const s = round && findShot(round, shotId);
+  if (!s || movingShotId || pendingAdd) return;
+  editingShotId = shotId;
+  $('editTitle').textContent = `Hole ${s.hole_no}, shot ${s.shot_no}`;
+  $('editInfo').textContent = `${new Date(s.recorded_at).toLocaleString()} · ` +
+    (s.accuracy_m == null ? (s.added_by_hand ? 'added by hand' : 'no GPS') : `±${s.accuracy_m.toFixed(1)} m`) +
+    ` · ${s.distance_m == null ? 'no distance' : fmtYds(s.distance_m)}`;
+  const clubs = state.bag.includes(s.club) ? state.bag : [...state.bag, s.club];
+  fillSelect($('editClub'), clubs, s.club);
+  fillSelect($('editHole'), Array.from({ length: HOLES }, (_, i) => i + 1), s.hole_no);
+  $('editExclude').checked = s.exclude_from_stats;
+  $('editMoveBtn').disabled = s.lat == null;
+  $('editShotDialog').showModal();
+}
+
+function afterShotEdit() {
+  persist();
+  $('editShotDialog').close();
+  render(false);
+  if ($('editSheet').classList.contains('open')) renderShotList();
+}
+
+function saveEditShot() {
+  const round = activeRound(state);
+  if (!round || !editingShotId) return;
+  editShot(round, editingShotId, {
+    club: $('editClub').value,
+    hole_no: Number($('editHole').value),
+    exclude_from_stats: $('editExclude').checked,
+  });
+  afterShotEdit();
+}
+
+function deleteEditShot() {
+  const round = activeRound(state);
+  if (!round || !editingShotId) return;
+  if (!confirm('Delete this shot? The shot before it will be re-measured to the next one.')) return;
+  deleteShot(round, editingShotId);
+  afterShotEdit();
+}
+
+// ---- Scorecard ------------------------------------------------------------------------------
+
+const PAR_CYCLE = [null, 3, 4, 5];
+const FAIRWAY_CYCLE = [null, 'hit', 'left', 'right'];
+const GIR_CYCLE = [null, true, false];
+const nextIn = (cycle, v) => cycle[(cycle.indexOf(v ?? null) + 1) % cycle.length];
+
+function scoreClass(sum) {
+  if (!sum.par || !sum.strokes) return '';
+  const d = sum.strokes - sum.par;
+  if (d < 0) return 'under';
+  if (d === 1) return 'over1';
+  if (d >= 2) return 'over2';
+  return '';
+}
+
+function openScorecard() {
+  renderScorecard();
+  $('scorecardDialog').showModal();
+}
+
+function renderScorecard() {
+  const round = activeRound(state);
+  if (!round) return;
+  $('scCourse').textContent = round.course || 'Round';
+  $('scDate').textContent = round.date;
+  const tp = scoreToPar(round);
+  $('scTotal').innerHTML = `${totalStrokes(round)}<small>${tp.holes ? fmtToPar(tp.diff) + ` through ${plural(tp.holes, 'hole')} with par` : 'set par to see ±'}</small>`;
+
+  const box = $('scTables');
+  box.innerHTML = '';
+  const totals = { strokes: 0, putts: 0, fwHit: 0, fwOf: 0, gir: 0, girOf: 0 };
+  for (const [from, name] of [[1, 'OUT'], [10, 'IN']]) {
+    const holes = Array.from({ length: 9 }, (_, i) => from + i);
+    const sums = holes.map((n) => holeSummary(round, n));
+    const t = document.createElement('table');
+    t.className = 'sc-table';
+    const row = (label, cls, cells, total) => {
+      const tr = document.createElement('tr');
+      if (cls) tr.className = cls;
+      tr.innerHTML = `<th>${label}</th>`;
+      cells.forEach((c) => { const td = document.createElement('td'); if (c instanceof Node) td.appendChild(c); else td.innerHTML = c; tr.appendChild(td); });
+      const td = document.createElement('td');
+      td.className = 'sc-sum';
+      td.innerHTML = total;
+      tr.appendChild(td);
+      t.appendChild(tr);
+    };
+    const btn = (html, onClick) => {
+      const b = document.createElement('button');
+      b.innerHTML = html;
+      b.addEventListener('click', () => { onClick(); persist(); renderScorecard(); render(false); });
+      return b;
+    };
+
+    row('Hole', 'sc-hole', holes.map(String), name);
+    row('Par', '', holes.map((n, i) => btn(sums[i].par ?? '·', () => setPar(round, n, nextIn(PAR_CYCLE, sums[i].par)))),
+      sums.reduce((a, s) => a + (s.par || 0), 0) || '');
+    row('Score', '', holes.map((n, i) => {
+      const s = sums[i];
+      const b = document.createElement('button');
+      b.innerHTML = s.strokes ? `<span class="sc-score ${scoreClass(s)}">${s.strokes}</span>` : '';
+      b.addEventListener('click', () => { $('scorecardDialog').close(); goToHole(n); });
+      return b;
+    }), sums.reduce((a, s) => a + s.strokes, 0) || '');
+    row('Fairway', '', holes.map((n, i) => {
+      const s = sums[i];
+      if (s.par === 3) return '';
+      const sym = { hit: '<span class="sc-hit">✓</span>', left: '←', right: '→' }[s.fairway] || '<span class="sc-miss">·</span>';
+      return btn(sym, () => setFairway(round, n, nextIn(FAIRWAY_CYCLE, s.fairway)));
+    }), (() => {
+      const elig = sums.filter((s) => s.par !== 3 && s.fairway != null);
+      totals.fwHit += elig.filter((s) => s.fairway === 'hit').length;
+      totals.fwOf += elig.length;
+      return elig.length ? `${elig.filter((s) => s.fairway === 'hit').length}/${elig.length}` : '';
+    })());
+    row('GIR', '', holes.map((n, i) => {
+      const s = sums[i];
+      const sym = s.gir === true ? '<span class="sc-hit">✓</span>' : s.gir === false ? '✗' : '<span class="sc-miss">·</span>';
+      return btn(sym, () => setGir(round, n, nextIn(GIR_CYCLE, s.gir)));
+    }), (() => {
+      const set = sums.filter((s) => s.gir != null);
+      totals.gir += set.filter((s) => s.gir).length;
+      totals.girOf += set.length;
+      return set.length ? `${set.filter((s) => s.gir).length}/${set.length}` : '';
+    })());
+    row('Putts', '', holes.map((n, i) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'sc-putts';
+      wrap.appendChild(btn('+', () => addPutt(round, n)));
+      const span = document.createElement('span');
+      span.textContent = sums[i].putts;
+      wrap.appendChild(span);
+      wrap.appendChild(btn('−', () => removePutt(round, n)));
+      return wrap;
+    }), sums.reduce((a, s) => a + s.putts, 0));
+
+    totals.strokes += sums.reduce((a, s) => a + s.strokes, 0);
+    totals.putts += sums.reduce((a, s) => a + s.putts, 0);
+    box.appendChild(t);
+  }
+
+  $('scSummary').innerHTML = `
+    <div><strong>${totals.strokes}</strong><span class="small">Strokes</span></div>
+    <div><strong>${totals.fwOf ? `${totals.fwHit}/${totals.fwOf}` : '–'}</strong><span class="small">Fairways</span></div>
+    <div><strong>${totals.girOf ? `${totals.gir}/${totals.girOf}` : '–'}</strong><span class="small">GIR</span></div>
+    <div><strong>${totals.putts}</strong><span class="small">Putts</span></div>`;
+}
+
+// ---- Round start / end -----------------------------------------------------------------------
 
 function startRound() {
   const round = newRound({ course: $('courseInput').value, startHole: Number($('startHoleInput').value) });
@@ -212,100 +549,10 @@ function locateOnce() {
   );
 }
 
-// ---- Shot list and editing ---------------------------------------------------------
-
-function openShotList() {
-  const round = activeRound(state);
-  if (!round) return;
-  const box = $('shotList');
-  box.innerHTML = '';
-  const holeNos = [...new Set([...round.shots.map((s) => s.hole_no),
-    ...Object.keys(round.holes).map(Number)])];
-  // Show holes in playing order, starting from the round's first hole.
-  const firstHole = round.shots.length ? round.shots.reduce((a, b) => (a.recorded_at < b.recorded_at ? a : b)).hole_no : 1;
-  holeNos.sort((a, b) => ((a - firstHole + HOLES) % HOLES) - ((b - firstHole + HOLES) % HOLES));
-
-  if (!holeNos.length) box.innerHTML = '<p class="small">No shots yet.</p>';
-  for (const n of holeNos) {
-    const sum = holeSummary(round, n);
-    const div = document.createElement('div');
-    div.className = 'hole-group';
-    div.innerHTML = `<h3>Hole ${n} <span class="small">· ${sum.strokes} strokes · ${sum.putts} putt${sum.putts === 1 ? '' : 's'}</span></h3>`;
-    const ol = document.createElement('ol');
-    ol.className = 'plain';
-    for (const s of shotsOnHole(round, n)) {
-      const li = document.createElement('li');
-      li.innerHTML = `<button class="shot-row${s.exclude_from_stats ? ' excluded' : ''}">
-        <span class="shot-no">${s.shot_no}</span>
-        <span class="shot-club">${escapeHtml(s.club)}</span>
-        <span class="shot-dist">${s.distance_m == null ? '–' : fmtYd(s.distance_m)}</span>
-        <span class="shot-meta">${s.accuracy_m == null ? 'no GPS' : '±' + s.accuracy_m.toFixed(0) + ' m'} · ${fmtTime(s.recorded_at)}${s.exclude_from_stats ? ' · excluded' : ''}</span>
-      </button>`;
-      li.querySelector('button').addEventListener('click', () => openEditShot(s.id));
-      ol.appendChild(li);
-    }
-    div.appendChild(ol);
-    box.appendChild(div);
-  }
-  $('shotListDialog').showModal();
-}
-
-function fillSelect(sel, values, selected) {
-  sel.innerHTML = '';
-  for (const v of values) {
-    const o = document.createElement('option');
-    o.value = v;
-    o.textContent = v;
-    if (String(v) === String(selected)) o.selected = true;
-    sel.appendChild(o);
-  }
-}
-
-function openEditShot(shotId) {
-  const round = activeRound(state);
-  const s = round && findShot(round, shotId);
-  if (!s) return;
-  editingShotId = shotId;
-  $('editTitle').textContent = `Hole ${s.hole_no}, shot ${s.shot_no}`;
-  $('editInfo').textContent = `${new Date(s.recorded_at).toLocaleString()} · ` +
-    (s.accuracy_m == null ? 'no GPS' : `±${s.accuracy_m.toFixed(1)} m`) +
-    ` · ${s.distance_m == null ? 'no distance' : fmtYd(s.distance_m)}`;
-  const clubs = state.bag.includes(s.club) ? state.bag : [...state.bag, s.club];
-  fillSelect($('editClub'), clubs, s.club);
-  fillSelect($('editHole'), Array.from({ length: HOLES }, (_, i) => i + 1), s.hole_no);
-  $('editExclude').checked = s.exclude_from_stats;
-  $('editShotDialog').showModal();
-}
-
-function saveEditShot() {
-  const round = activeRound(state);
-  if (!round || !editingShotId) return;
-  editShot(round, editingShotId, {
-    club: $('editClub').value,
-    hole_no: Number($('editHole').value),
-    exclude_from_stats: $('editExclude').checked,
-  });
-  persist();
-  $('editShotDialog').close();
-  render();
-  openShotList(); // refresh the list behind it
-}
-
-function deleteEditShot() {
-  const round = activeRound(state);
-  if (!round || !editingShotId) return;
-  if (!confirm('Delete this shot? The shot before it will be re-measured to the next one.')) return;
-  deleteShot(round, editingShotId);
-  persist();
-  $('editShotDialog').close();
-  render();
-  openShotList();
-}
-
-// ---- Bag -------------------------------------------------------------------------
+// ---- Bag -------------------------------------------------------------------------------------
 
 function openBag() {
-  $('menuDialog').close();
+  if ($('menuDialog').open) $('menuDialog').close();
   $('bagText').value = state.bag.join('\n');
   $('bagDialog').showModal();
 }
@@ -316,10 +563,9 @@ function saveBag() {
   state.bag = [...new Set(clubs)];
   persist();
   $('bagDialog').close();
-  render();
 }
 
-// ---- Export ------------------------------------------------------------------------
+// ---- Export ------------------------------------------------------------------------------------
 
 function stamp() {
   return new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
@@ -336,7 +582,7 @@ function exportAll(kind) {
   else saveFile(`golf-data-${stamp()}.json`, JSON.stringify(state, null, 2), 'application/json');
 }
 
-// ---- Screen Wake Lock ----------------------------------------------------------------
+// ---- Screen Wake Lock ------------------------------------------------------------------------
 // Keeps the screen on so iOS doesn't pause the app. The OS drops the lock
 // whenever the app goes to the background, so it's re-taken on return.
 
@@ -375,12 +621,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && wantWakeLock) requestWakeLock();
 });
 
-// ---- Rendering --------------------------------------------------------------------------
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (ch) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-}
+// ---- Rendering ----------------------------------------------------------------------------------
 
 function renderStart() {
   const ol = $('pastRounds');
@@ -388,9 +629,10 @@ function renderStart() {
   const rounds = [...state.rounds].reverse();
   if (!rounds.length) ol.innerHTML = '<li class="small">No rounds yet.</li>';
   for (const r of rounds) {
+    const tp = scoreToPar(r);
     const li = document.createElement('li');
-    li.innerHTML = `<button class="round-row"><strong>${r.date}</strong> ${escapeHtml(r.course || 'Unnamed course')}
-      <span class="small">· ${totalStrokes(r)} strokes · ${r.shots.length} shots</span></button>`;
+    li.innerHTML = `<button class="round-row"><strong>${r.date}</strong>&nbsp;${escapeHtml(r.course || 'Unnamed course')}
+      <span class="small">&nbsp;· ${totalStrokes(r)} strokes${tp.holes ? ` (${fmtToPar(tp.diff)})` : ''} · ${plural(r.shots.length, 'shot')}</span></button>`;
     li.querySelector('button').addEventListener('click', () => {
       if (!confirm(`Reopen the ${r.date} round to view or edit it?`)) return;
       state.active_round_id = r.id;
@@ -403,31 +645,47 @@ function renderStart() {
   $('exportAllJsonBtn').disabled = !state.rounds.length;
 }
 
-function renderClubs() {
-  const grid = $('clubGrid');
-  if (grid.dataset.bag === state.bag.join('|')) return; // unchanged
-  grid.dataset.bag = state.bag.join('|');
-  grid.innerHTML = '';
-  for (const club of state.bag) {
-    const b = document.createElement('button');
-    b.className = 'club';
-    b.textContent = club;
-    b.addEventListener('click', () => onClub(club));
-    grid.appendChild(b);
+function renderHoleTabs(round) {
+  const nav = $('holeTabs');
+  if (!nav.children.length) {
+    for (let n = 1; n <= HOLES; n++) {
+      const b = document.createElement('button');
+      b.className = 'hole-tab';
+      b.textContent = n;
+      b.dataset.hole = n;
+      b.addEventListener('click', () => goToHole(n));
+      nav.appendChild(b);
+    }
   }
+  for (const b of nav.children) {
+    const n = Number(b.dataset.hole);
+    b.classList.toggle('current', n === round.current_hole);
+    b.classList.toggle('done', holeSummary(round, n).finished);
+  }
+  const cur = nav.children[round.current_hole - 1];
+  if (cur && cur.scrollIntoView) cur.scrollIntoView({ inline: 'center', block: 'nearest' });
 }
 
-function renderRound(round) {
+// fit: whether the map should re-frame the hole (false while editing, so it doesn't jump)
+function renderRound(round, fit) {
   const n = round.current_hole;
   const sum = holeSummary(round, n);
+  const tp = scoreToPar(round);
+
   $('courseName').textContent = round.course || 'Round';
-  $('roundTotal').textContent = `${round.date} · ${totalStrokes(round)} strokes so far`;
-  $('holeNo').textContent = n;
-  $('holeSummary').textContent =
-    `${sum.shots} shot${sum.shots === 1 ? '' : 's'} + ${sum.putts} putt${sum.putts === 1 ? '' : 's'} = ${sum.strokes}` +
-    (sum.finished ? ' · finished' : '');
+  $('roundDate').textContent = round.date;
+  $('scoreChip').textContent = tp.holes ? fmtToPar(tp.diff) : String(totalStrokes(round));
+
+  if (sum.par && sum.strokes) {
+    $('holeScore').textContent = toParWords(sum.strokes - sum.par);
+    $('holeScoreLabel').textContent = `HOLE ${n} · PAR ${sum.par}`;
+  } else {
+    $('holeScore').textContent = sum.strokes;
+    $('holeScoreLabel').textContent = `HOLE ${n} STROKES`;
+  }
   $('puttCount').textContent = sum.putts;
-  renderClubs();
+  $('finishHoleBtn').textContent = sum.finished ? `Hole ${n} done ✓` : 'Finish hole ›';
+  renderHoleTabs(round);
 
   if (!mapReady) {
     createMap('map');
@@ -435,32 +693,46 @@ function renderRound(round) {
   }
   refreshSize();
   const h = round.holes[String(n)];
-  drawHole(shotsOnHole(round, n), h ? h.end : null, fmtYd);
+  drawHole(shotsOnHole(round, n), h ? h.end : null, {
+    fmt: fmtYds,
+    putts: sum.putts,
+    onShotTap: openEditShot,
+    movingShotId,
+    onMoved: (lat, lon) => { pendingMove = { lat, lon }; },
+    fit,
+  });
 }
 
-function render() {
+function render(fit = true) {
   const round = activeRound(state);
   $('startScreen').hidden = !!round;
   $('roundScreen').hidden = !round;
-  if (round) renderRound(round);
+  if (round) renderRound(round, fit);
   else renderStart();
 }
 
-// ---- Startup ------------------------------------------------------------------------------
+// ---- Startup ------------------------------------------------------------------------------------
 
 function init() {
   fillSelect($('startHoleInput'), Array.from({ length: HOLES }, (_, i) => i + 1), 1);
 
   $('startBtn').addEventListener('click', startRound);
-  $('prevHoleBtn').addEventListener('click', () => changeHole(-1));
-  $('nextHoleBtn').addEventListener('click', () => changeHole(1));
+  $('nextShotBtn').addEventListener('click', () => { if (!busy) openClubSheet('shot'); });
   $('puttPlusBtn').addEventListener('click', onPuttPlus);
   $('puttMinusBtn').addEventListener('click', onPuttMinus);
   $('finishHoleBtn').addEventListener('click', onFinishHole);
-  $('shotListBtn').addEventListener('click', openShotList);
+  $('editBtn').addEventListener('click', () => { if (!busy) openEditSheet(); });
+  $('addShotBtn').addEventListener('click', startAddMissedShot);
+  $('scoreChip').addEventListener('click', openScorecard);
+  $('scoreBox').addEventListener('click', openScorecard);
+  $('sheetBackdrop').addEventListener('click', closeSheets);
+  document.querySelectorAll('.sheet-close').forEach((b) => b.addEventListener('click', closeSheets));
+
   $('editSaveBtn').addEventListener('click', saveEditShot);
   $('editCancelBtn').addEventListener('click', () => $('editShotDialog').close());
   $('editDeleteBtn').addEventListener('click', deleteEditShot);
+  $('editMoveBtn').addEventListener('click', () => { $('editShotDialog').close(); startMoveShot(editingShotId); });
+
   $('menuBtn').addEventListener('click', () => { updateWakeButton(); $('menuDialog').showModal(); });
   $('wakeBtn').addEventListener('click', toggleWakeLock);
   $('exportCsvBtn').addEventListener('click', () => exportRound(activeRound(state), 'csv'));
