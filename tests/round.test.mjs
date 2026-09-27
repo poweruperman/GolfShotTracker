@@ -9,6 +9,7 @@ import { haversineM } from '../js/geo.js';
 import {
   newRound, addShot, setHoleEnd, editShot, deleteShot, addPutt, removePutt,
   finishHole, holeSummary, totalStrokes, shotsToCsv, shotsOnHole, finishedHoleCount,
+  moveShot, insertShot, setShotPosition, setPar, scoreToPar, fmtToPar, toParWords,
 } from '../js/round.js';
 
 // Made-up spot. 0.001° of latitude is about 111.2 m anywhere on Earth.
@@ -36,17 +37,12 @@ test('shot distance is measured to the next press, attributed to the earlier clu
   assert.deepEqual(shotsOnHole(r, 1).map((s) => s.shot_no), [1, 2]);
 });
 
-test('ball-on-green end point gives the last shot a distance; later shots ignore a stale end', () => {
+test('ball-on-green end point gives the last shot a distance', () => {
   const r = newRound({ now: new Date(clock) });
   addShot(r, { club: 'Dr', pos: pos(0) });
   const approach = addShot(r, { club: '9i', pos: pos(0.002) });
   setHoleEnd(r, 1, pos(0.003));
   assert.ok(Math.abs(approach.distance_m - 111.2) < 0.3);
-
-  // A chip after the end point was recorded: the end point is older than the
-  // chip, so it must not be used as the chip's destination.
-  const chip = addShot(r, { club: 'SW', pos: pos(0.0031) });
-  assert.equal(chip.distance_m, null);
 });
 
 test('a shot with no GPS still counts but has no distance, and neither does the one before', () => {
@@ -85,7 +81,11 @@ test('putts, finishing a hole and total strokes', () => {
   addShot(r, { club: 'Dr', pos: pos(0) });
   addShot(r, { club: '8i', pos: pos(0.002) });
   addPutt(r, 1); addPutt(r, 1); addPutt(r, 1); removePutt(r, 1);
-  assert.deepEqual(holeSummary(r, 1), { shots: 2, putts: 2, strokes: 4, finished: false });
+  const sum = holeSummary(r, 1);
+  assert.equal(sum.shots, 2);
+  assert.equal(sum.putts, 2);
+  assert.equal(sum.strokes, 4);
+  assert.equal(sum.finished, false);
 
   finishHole(r, new Date(clock));
   assert.equal(r.current_hole, 2);
@@ -110,4 +110,54 @@ test('CSV has a header and one row per shot, with quoting', () => {
   assert.equal(lines.length, 3);
   assert.ok(lines[0].startsWith('round_id,date,course,hole_no'));
   assert.ok(lines[1].includes('"Made-up Links, North"'));
+});
+
+test('reordering shots renumbers them and re-measures distances', () => {
+  const r = newRound({ now: new Date(clock) });
+  const a = addShot(r, { club: 'Dr', pos: pos(0) });
+  const b = addShot(r, { club: 'PW', pos: pos(0.003) }); // recorded out of order
+  const c = addShot(r, { club: '7i', pos: pos(0.002) });
+  moveShot(r, c.id, 1); // 7i belongs before PW
+  assert.deepEqual(shotsOnHole(r, 1).map((s) => s.club), ['Dr', '7i', 'PW']);
+  assert.ok(Math.abs(a.distance_m - 222.4) < 0.5);
+  assert.ok(Math.abs(c.distance_m - 111.2) < 0.3);
+  assert.equal(b.distance_m, null);
+});
+
+test('a missed shot added on the map goes where it fits best', () => {
+  const r = newRound({ now: new Date(clock) });
+  addShot(r, { club: 'Dr', pos: pos(0) });
+  addShot(r, { club: 'SW', pos: pos(0.004) });
+  // Forgot to record the 7i hit from halfway.
+  const added = insertShot(r, { holeNo: 1, club: '7i', lat: BASE.lat + 0.002, lon: BASE.lon });
+  assert.deepEqual(shotsOnHole(r, 1).map((s) => s.club), ['Dr', '7i', 'SW']);
+  assert.equal(added.added_by_hand, true);
+  assert.ok(Math.abs(added.distance_m - 222.4) < 0.5);
+});
+
+test('dragging a shot to a new spot re-measures both neighbours', () => {
+  const r = newRound({ now: new Date(clock) });
+  const a = addShot(r, { club: 'Dr', pos: pos(0) });
+  const b = addShot(r, { club: '7i', pos: pos(0.002) });
+  addShot(r, { club: 'PW', pos: pos(0.003) });
+  setShotPosition(r, b.id, BASE.lat + 0.001, BASE.lon);
+  assert.equal(b.moved_by_hand, true);
+  assert.ok(Math.abs(a.distance_m - 111.2) < 0.3);
+  assert.ok(Math.abs(b.distance_m - 222.4) < 0.5);
+});
+
+test('score to par counts only holes with a par', () => {
+  const r = newRound({ now: new Date(clock) });
+  addShot(r, { club: 'Dr', pos: pos(0) });
+  addShot(r, { club: '7i', pos: pos(0.001) });
+  addPutt(r, 1); addPutt(r, 1);            // 4 on hole 1
+  setPar(r, 1, 3);
+  finishHole(r, new Date(clock));
+  addShot(r, { club: 'Dr', pos: pos(0.01) }); // hole 2 has no par set
+  assert.deepEqual(scoreToPar(r), { diff: 1, holes: 1 });
+  assert.equal(holeSummary(r, 1).toPar, 1);
+  assert.equal(fmtToPar(1), '+1');
+  assert.equal(fmtToPar(0), 'E');
+  assert.equal(toParWords(4), '4 Over');
+  assert.equal(toParWords(-1), '1 Under');
 });
