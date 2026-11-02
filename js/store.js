@@ -1,29 +1,25 @@
 /*
- * On-phone database: everything is kept in the browser's localStorage as one
- * JSON document. A full round is only a few kilobytes, so this is plenty for
- * now. Cloud sync (Phase 2) will copy the same records to Firebase/Supabase.
- *
- * iOS can wipe browser storage (for example after weeks without opening the
- * app), so export after each round until cloud sync exists.
+ * On-phone storage: one JSON document in localStorage. Rounds are small (a
+ * few KB), so this holds years of golf. iOS can clear web-app storage, so
+ * the Player tab offers a backup file and restore.
  */
 
 import { DEFAULT_BAG } from './round.js';
 
-const KEY = 'golfTracker.v1';
+const KEY = 'gst.v2';
 
-function emptyState() {
-  return { version: 1, bag: [...DEFAULT_BAG], active_round_id: null, rounds: [] };
+function empty() {
+  return { version: 2, bag: [...DEFAULT_BAG], active_round_id: null, rounds: [] };
 }
 
 export function load() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY));
-    if (s && s.version === 1) return s;
-  } catch (e) { /* fall through to a fresh state */ }
-  return emptyState();
+    if (s && s.version === 2) return s;
+  } catch (e) { /* start fresh */ }
+  return empty();
 }
 
-// Returns false if the phone refused to save (storage full or blocked).
 export function save(state) {
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
@@ -33,14 +29,16 @@ export function save(state) {
   }
 }
 
-export function activeRound(state) {
-  return state.rounds.find((r) => r.id === state.active_round_id) || null;
+// Restore from a backup file made by exportBackup. Returns the new state or throws.
+export function parseBackup(text) {
+  const s = JSON.parse(text);
+  if (!s || s.version !== 2 || !Array.isArray(s.rounds)) throw new Error('Not a backup file from this app.');
+  return s;
 }
 
 /*
- * On iPhone the share sheet is the reliable way to get a file out of a
- * home-screen app ("Save to Files", Mail, AirDrop). Fall back to a normal
- * download link where sharing files is not supported.
+ * The share sheet is the reliable way to get a file out of a home-screen app
+ * on iPhone ("Save to Files", Mail, AirDrop). Falls back to a download link.
  */
 export async function saveFile(filename, text, mime) {
   const file = new File([text], filename, { type: mime });
@@ -49,7 +47,7 @@ export async function saveFile(filename, text, mime) {
       await navigator.share({ files: [file], title: filename });
       return;
     } catch (e) {
-      if (e.name === 'AbortError') return; // share sheet closed
+      if (e.name === 'AbortError') return;
     }
   }
   const url = URL.createObjectURL(file);
