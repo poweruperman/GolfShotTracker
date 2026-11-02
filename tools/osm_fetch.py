@@ -82,30 +82,65 @@ out tags center bb;"""
 
 
 def step_courses():
+    """Everything golf-related inside (and just around) each course outline."""
     cfg_path = os.path.join(ROOT, "tools/courses.json")
     if not os.path.exists(cfg_path):
         print("courses: tools/courses.json not written yet; skipping")
         return
     cfg = json.load(open(cfg_path))
-    for c in cfg["courses"]:
-        out = os.path.join(ROOT, f"data/osm/courses/{c['id']}.json")
-        if os.path.exists(out) and not c.get("refetch"):
+    for fac in cfg["facilities"]:
+        out = os.path.join(ROOT, f"data/osm/courses/{fac['file']}.json")
+        if os.path.exists(out) and not fac.get("refetch"):
             continue
-        s, w, n, e = c["bbox"]
-        print(f"courses: {c['id']}", flush=True)
+        ways = [o.split("/")[1] for o in fac["osm"] if o.startswith("way/")]
+        rels = [o.split("/")[1] for o in fac["osm"] if o.startswith("relation/")]
+        sel = ""
+        if ways:
+            sel += f"way(id:{','.join(ways)});"
+        if rels:
+            sel += f"relation(id:{','.join(rels)});"
+        print(f"courses: {fac['file']}", flush=True)
         q = f"""[out:json][timeout:180];
-(nwr["golf"]({s},{w},{n},{e});
- nwr["leisure"="golf_course"]({s},{w},{n},{e});
- nwr["natural"="water"]({s},{w},{n},{e});
- nwr["water"]({s},{w},{n},{e}););
+({sel})->.c;
+.c map_to_area->.a;
+(nwr["golf"](area.a);
+ nwr["golf"](around.c:60);
+ nwr["natural"="water"](area.a);
+ nwr["leisure"="golf_course"](area.a);
+ .c;);
 out tags geom;"""
         res = overpass(q)
-        write_json(out, {"source": "OpenStreetMap contributors (ODbL)", "id": c["id"],
-                         "bbox": c["bbox"], "elements": res["elements"]})
+        write_json(out, {"source": "OpenStreetMap contributors (ODbL)", "file": fac["file"],
+                         "osm": fac["osm"], "elements": res["elements"]})
         time.sleep(5)  # be polite to the free Overpass servers
 
 
+def step_search():
+    """Find courses by name in a wider area (for names not in the region list)."""
+    cfg_path = os.path.join(ROOT, "tools/courses.json")
+    if not os.path.exists(cfg_path):
+        return
+    cfg = json.load(open(cfg_path))
+    out = os.path.join(ROOT, "data/osm/search.json")
+    if not cfg.get("search") or os.path.exists(out):
+        return
+    found = []
+    for srch in cfg["search"]:
+        s, w, n, e = srch["bbox"]
+        q = f"""[out:json][timeout:120];
+(way["leisure"="golf_course"]["name"~"{srch['name']}",i]({s},{w},{n},{e});
+ relation["leisure"="golf_course"]["name"~"{srch['name']}",i]({s},{w},{n},{e}););
+out tags center;"""
+        res = overpass(q)
+        for el in res["elements"]:
+            c = el.get("center", {})
+            found.append({"query": srch["name"], "osm": f"{el['type']}/{el['id']}",
+                          "name": el.get("tags", {}).get("name", ""),
+                          "center": [c.get("lat"), c.get("lon")], "tags": el.get("tags", {})})
+    write_json(out, {"source": "OpenStreetMap contributors (ODbL)", "results": found})
+
+
 if __name__ == "__main__":
-    steps = sys.argv[1:] or ["region", "courses"]
+    steps = sys.argv[1:] or ["region", "search", "courses"]
     for st in steps:
-        {"region": step_region, "courses": step_courses}[st]()
+        {"region": step_region, "search": step_search, "courses": step_courses}[st]()
