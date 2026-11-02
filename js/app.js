@@ -1,767 +1,921 @@
 /*
- * Golf Shot Tracker: the screen logic.
+ * Golf Shot Tracker: the screens.
  *
- * Flow on the course:
- *   1. Stand at the ball, tap "Next shot", pick the club. The app samples the
- *      GPS for a few seconds and saves the shot with its position.
- *   2. The previous shot's distance is filled in automatically: it's the
- *      distance from where it was hit to where this one is hit.
- *   3. On the green, tap Putts +. The first putt also records the ball's
- *      position, which gives the approach shot its distance.
- *   4. "Finish hole" moves on to the next hole.
+ * Home (bottom tabs): Player, Clubs, Courses, Activity, Start Round.
+ * Play: one hole at a time on its aerial photo (tee at the bottom), with
+ *   live front/center/back distances to the green, tap-to-measure, shots
+ *   drawn with club and yards, putts and a "+ SHOT" button.
  *
- * Editing afterwards (the EDIT button): reorder shots, add a missed shot by
- * tapping the map, drag a shot to where it really was, change clubs.
+ * Recording a shot: stand at the ball, tap + SHOT, pick the club. The GPS is
+ * sampled for a few seconds; the previous shot's distance fills in.
+ * After putting out, the next + SHOT moves on to the next hole by itself.
  *
- * The data rules live in round.js; storage in store.js; the map in map.js.
+ * Data rules: round.js. Map math: geo.js. Hole drawing: holeview.js.
  */
 
-import { sampleBestPosition, geoErrorText, accuracyClass, toYd, FLAG_ACCURACY_M, SAMPLE_MS } from './geo.js';
 import {
-  DEFAULT_BAG, HOLES, newRound, hole, shotsOnHole, addShot, editShot, deleteShot, findShot,
-  setHoleEnd, addPutt, removePutt, holeSummary, finishHole, totalStrokes, shotsToCsv,
-  nextHoleNo, finishedHoleCount, moveShot, insertShot, setShotPosition,
-  setPar, setFairway, setGir, scoreToPar, fmtToPar, toParWords,
+  toYd, M_TO_FT, FLAG_ACCURACY_M, SAMPLE_MS, distM, greenDistances,
+  sampleBestPosition, geoErrorText,
+} from './geo.js';
+import {
+  DEFAULT_BAG, newRound, hole, shotsOnHole, addShot, findShot, editShot, deleteShot, moveShot,
+  setShotPosition, insertShot, setHoleEnd, setPutts, finishHole, nextHoleNo, holeScore,
+  scoreToPar, fmtToPar, toParWords, analyzeHole, clubStats, shotsToCsv,
 } from './round.js';
-import { load, save, activeRound, saveFile } from './store.js';
-import { createMap, refreshSize, centerOn, showMe, drawHole, onMapTap } from './map.js';
+import { load, save, parseBackup, saveFile } from './store.js';
+import {
+  loadIndex, loadCourse, cachedCourse, courseHole, imageUrl, sortByDistance, downloadForOffline,
+} from './courses.js';
+import { createHoleView } from './holeview.js';
 
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const yds = (m) => `${Math.round(toYd(m))}`;
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 let state = load();
-let busy = false;           // true while the GPS is being sampled
-let mapReady = false;
-let editingShotId = null;   // shot open in the edit dialog
-let clubPurpose = 'shot';   // what the club sheet is picking for: 'shot' or 'add'
-let pendingAdd = null;      // {lat, lon} tapped for a missed shot
-let movingShotId = null;    // shot being dragged on the map
-let pendingMove = null;     // {lat, lon} where it was dropped
-let bannerTimer = null;
-let wakeLock = null;
-let wantWakeLock = false;
+let tab = 'start';
+let here = null;            // last known [lat, lon] (for sorting courses)
 
-const fmtYds = (m) => `${Math.round(toYd(m))} yds`;
-const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+// Play screen
+let play = null;            // { mode: 'round' | 'browse', roundId, courseId, n }
+let course = null;          // loaded course file for the play screen
+let editMode = false;
+let undoStack = [];
+let target = null;          // tapped point { lat, lon }
+let me = null;              // live GPS { lat, lon, acc }
+let watchId = null;
+let busy = false;
+let toastTimer = null;
+let clubPick = null;        // what the club sheet is for: { kind: 'shot' } | { kind: 'add', lat, lon }
+let sheetShotId = null;
+
+let wakeLock = null;
+let wantWake = false;
+
+const hv = createHoleView($('holeView'), {
+  onTap: onMapTap,
+  onPinTap: (id) => openShotSheet(id),
+  onPinDrag: onPinDrag,
+});
 
 function persist() {
-  if (!save(state)) showBanner('Could not save on this phone. Export now so nothing is lost.', { error: true, persist: true });
+  if (!save(state)) toast('Could not save on this phone. Back up your data from Player.', { error: true });
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (ch) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-}
+const playRound = () => (play && play.mode === 'round' ? state.rounds.find((r) => r.id === play.roundId) : null);
+const activeRound = () => state.rounds.find((r) => r.id === state.active_round_id) || null;
+const isLive = (r) => r && r.id === state.active_round_id;
+const parOf = (c) => (n) => { const h = courseHole(c, n); return h ? h.par : null; };
 
-// ---- Banner (messages over the map) -------------------------------------------------
+// ======================================================================= Home
 
-/*
- * opts.persist keeps it up until replaced; otherwise it hides after 7 s.
- * opts.actions shows Cancel/Done buttons: { onCancel, onDone } (Done optional).
- */
-function showBanner(html, opts = {}) {
-  clearTimeout(bannerTimer);
-  $('bannerText').innerHTML = html;
-  $('banner').classList.toggle('error', !!opts.error);
-  $('banner').hidden = false;
-  const acts = opts.actions;
-  $('bannerActions').hidden = !acts;
-  if (acts) {
-    $('bannerDoneBtn').hidden = !acts.onDone;
-    $('bannerCancelBtn').onclick = acts.onCancel;
-    $('bannerDoneBtn').onclick = acts.onDone || null;
+const TITLES = { player: 'Player', clubs: 'Clubs', courses: 'Courses', activity: 'Activity', start: 'Start Round' };
+
+function showHome(t = tab) {
+  tab = t;
+  stopLiveGps();
+  releaseWake();
+  play = null;
+  editMode = false;
+  $('play').hidden = true;
+  $('home').hidden = false;
+  $('homeTitle').textContent = TITLES[tab];
+  document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  const ar = activeRound();
+  $('resumeCard').hidden = !ar;
+  if (ar) {
+    $('resumeCard').innerHTML = `<strong>Round in progress</strong><span>${esc(ar.course_name)} · Hole ${ar.current_hole}</span><em>Resume ›</em>`;
   }
-  if (!opts.persist && !acts) bannerTimer = setTimeout(hideBanner, 7000);
+  renderTab();
 }
 
-function hideBanner() {
-  clearTimeout(bannerTimer);
-  $('banner').hidden = true;
-  $('progress').hidden = true;
+async function renderTab() {
+  const body = $('homeBody');
+  body.innerHTML = '';
+  if (tab === 'start' || tab === 'courses') return renderCourseList(body);
+  if (tab === 'activity') return renderActivity(body);
+  if (tab === 'clubs') return renderClubs(body);
+  if (tab === 'player') return renderPlayer(body);
 }
 
-function setBusy(on, label = '') {
-  busy = on;
-  ['nextShotBtn', 'puttPlusBtn', 'finishHoleBtn', 'editBtn'].forEach((id) => { $(id).disabled = on; });
-  $('progress').hidden = !on;
-  if (on) {
-    $('progressFill').style.width = '0%';
-    showBanner(`<strong>Hold still…</strong> ${label}`, { persist: true });
-  }
-}
-
-// Sample the GPS with a progress bar. Resolves to a position, or null on
-// failure (with the reason shown on screen).
-async function takeReading(label) {
-  setBusy(true, label);
+async function renderCourseList(body) {
+  body.innerHTML = `<input id="courseSearch" class="search" type="search" placeholder="Search courses" autocomplete="off">
+    <ol id="courseList" class="list"></ol>`;
+  let list = [];
   try {
-    const pos = await sampleBestPosition((bestAcc, n, elapsed) => {
-      $('progressFill').style.width = Math.min(100, (elapsed / SAMPLE_MS) * 100) + '%';
-      $('bannerText').innerHTML =
-        `<strong>Hold still…</strong> ${label} · ${n} fix${n === 1 ? '' : 'es'}, best ±${bestAcc.toFixed(1)} m`;
-    });
-    setBusy(false);
-    return pos;
-  } catch (err) {
-    setBusy(false);
-    showBanner(geoErrorText(err), { error: true });
-    return null;
+    list = await loadIndex();
+  } catch (e) {
+    body.querySelector('#courseList').innerHTML = `<li class="hint">${esc(e.message)}</li>`;
+    return;
+  }
+  const draw = () => {
+    const q = body.querySelector('#courseSearch').value.trim().toLowerCase();
+    const items = sortByDistance(list, here).filter((c) => !q || `${c.name} ${c.city}`.toLowerCase().includes(q));
+    const ol = body.querySelector('#courseList');
+    ol.innerHTML = '';
+    for (const c of items) {
+      const li = document.createElement('li');
+      const away = c.away_m != null ? `${(c.away_m / 1000).toFixed(1)} km` : '';
+      const holes = c.holes < c.holes_expected ? `${c.holes}/${c.holes_expected} holes mapped` : `${c.holes_expected} holes`;
+      li.innerHTML = `<button class="row-btn"><span class="row-main"><strong>${esc(c.name)}</strong>
+        <span class="sub">${esc(c.city)} · ${holes}${c.par ? ` · Par ${c.par}` : ''}</span></span>
+        <span class="row-side">${away}</span></button>`;
+      li.querySelector('button').addEventListener('click', () => (tab === 'start' ? openStart(c) : openBrowse(c.id, 1)));
+      ol.appendChild(li);
+    }
+    if (!items.length) ol.innerHTML = '<li class="hint">No courses match.</li>';
+  };
+  body.querySelector('#courseSearch').addEventListener('input', draw);
+  draw();
+  if (!here) locateOnce(() => { if (tab === 'start' || tab === 'courses') draw(); });
+}
+
+function renderActivity(body) {
+  const rounds = [...state.rounds].sort((a, b) => b.started_at.localeCompare(a.started_at));
+  if (!rounds.length) {
+    body.innerHTML = '<p class="hint pad">No rounds yet. Start one from Start Round.</p>';
+    return;
+  }
+  const ol = document.createElement('ol');
+  ol.className = 'list';
+  for (const r of rounds) {
+    const c = cachedCourse(r.course_id);
+    const sp = scoreToPar(r, c ? parOf(c) : () => null);
+    const li = document.createElement('li');
+    li.innerHTML = `<button class="row-btn"><span class="row-main"><strong>${esc(r.course_name)}</strong>
+      <span class="sub">${r.date}${isLive(r) ? ' · in progress' : ''}</span></span>
+      <span class="row-side big">${sp.strokes || '–'}${sp.holes ? `<em>${fmtToPar(sp.diff)}</em>` : ''}</span></button>`;
+    li.querySelector('button').addEventListener('click', () => openRound(r.id));
+    ol.appendChild(li);
+  }
+  body.appendChild(ol);
+  // Load the course files in the background so scores vs par show next time.
+  for (const id of new Set(rounds.map((r) => r.course_id))) {
+    if (!cachedCourse(id)) loadCourse(id).then(() => { if (tab === 'activity' && !play) renderTab(); }).catch(() => {});
   }
 }
 
-function accuracyNote(pos) {
-  const flag = pos.accuracy_m > FLAG_ACCURACY_M ? ' ⚑ poor GPS' : '';
-  return `<span class="badge ${accuracyClass(pos.accuracy_m)}">±${pos.accuracy_m.toFixed(1)} m${flag}</span>`;
+async function renderClubs(body) {
+  // Course files are needed to tell chips from full swings.
+  await Promise.all([...new Set(state.rounds.map((r) => r.course_id))].map((id) => loadCourse(id).catch(() => null)));
+  const stats = clubStats(state.rounds, (r, n) => courseHole(cachedCourse(r.course_id), n));
+  const clubs = [...state.bag, ...Object.keys(stats).filter((c) => !state.bag.includes(c))];
+  body.innerHTML = `<p class="hint pad">Average total distance (carry + roll) per club, from every shot
+    you've recorded. Chips/pitches and shots marked "exclude" are left out. One shot can be
+    5–10 yds off from GPS error; averages over many shots are reliable.</p>
+    <ol class="list clubs"></ol>
+    <button id="editBag" class="wide-btn">Edit my bag</button>`;
+  const ol = body.querySelector('ol');
+  for (const club of clubs) {
+    const s = stats[club];
+    const li = document.createElement('li');
+    li.innerHTML = `<div class="club-row"><span class="badge">${esc(club)}</span>
+      <span class="row-main"><strong>${s ? `${yds(s.avg_m)} yds` : '–'}</strong>
+      <span class="sub">${s ? `${plural(s.count, 'shot')} · longest ${yds(s.max_m)} · range ${yds(s.min_m)}–${yds(s.max_m)}` : 'no shots yet'}</span></span></div>`;
+    ol.appendChild(li);
+  }
+  body.querySelector('#editBag').addEventListener('click', openBag);
 }
 
-// ---- Bottom sheets ---------------------------------------------------------------------
-
-function openSheet(id) {
-  closeSheets();
-  $('sheetBackdrop').hidden = false;
-  $(id).classList.add('open');
+async function renderPlayer(body) {
+  const done = state.rounds.filter((r) => r.shots.length);
+  await Promise.all([...new Set(done.map((r) => r.course_id))].map((id) => loadCourse(id).catch(() => null)));
+  let fwHit = 0; let fwAll = 0; let girHit = 0; let girAll = 0; let putts = 0; let holesPlayed = 0;
+  for (const r of done) {
+    const c = cachedCourse(r.course_id);
+    for (let n = 1; n <= r.holes_total; n++) {
+      const sc = holeScore(r, n);
+      if (!sc.strokes) continue;
+      holesPlayed++;
+      putts += sc.putts;
+      const a = analyzeHole(r, n, courseHole(c, n));
+      if (a.fairway) { fwAll++; if (a.fairway === 'hit') fwHit++; }
+      if (a.gir !== null) { girAll++; if (a.gir) girHit++; }
+    }
+  }
+  const pct = (a, b) => (b ? `${Math.round((100 * a) / b)}%` : '–');
+  body.innerHTML = `
+    <div class="stat-grid">
+      <div><strong>${done.length}</strong><span>Rounds</span></div>
+      <div><strong>${pct(fwHit, fwAll)}</strong><span>Fairways</span></div>
+      <div><strong>${pct(girHit, girAll)}</strong><span>GIR</span></div>
+      <div><strong>${holesPlayed ? ((putts / holesPlayed) * 18).toFixed(1) : '–'}</strong><span>Putts / 18</span></div>
+    </div>
+    <h3 class="section">Settings</h3>
+    <button id="pBag" class="wide-btn">My bag</button>
+    <button id="pWake" class="wide-btn">Keep screen on during a round: ${state.no_wake ? 'Off' : 'On'}</button>
+    <h3 class="section">Your data (only on this phone)</h3>
+    <button id="pBackup" class="wide-btn">Back up all rounds (file)</button>
+    <button id="pRestore" class="wide-btn">Restore from a backup file</button>
+    <button id="pCsv" class="wide-btn">Export shots (CSV)</button>
+    <a class="wide-btn" href="gps-test/">GPS accuracy test</a>
+    <p class="hint pad">Course maps © OpenStreetMap contributors. Aerial imagery: USGS The National Map.
+      Back up after each round: iPhone can clear web-app storage.</p>`;
+  body.querySelector('#pBag').addEventListener('click', openBag);
+  body.querySelector('#pWake').addEventListener('click', () => { state.no_wake = !state.no_wake; persist(); renderTab(); });
+  body.querySelector('#pBackup').addEventListener('click', () =>
+    saveFile(`golf-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(state), 'application/json'));
+  body.querySelector('#pRestore').addEventListener('click', () => $('restoreFile').click());
+  body.querySelector('#pCsv').addEventListener('click', () =>
+    saveFile(`golf-shots-${new Date().toISOString().slice(0, 10)}.csv`, shotsToCsv(state.rounds), 'text/csv'));
 }
 
-function closeSheets() {
-  document.querySelectorAll('.sheet.open').forEach((el) => el.classList.remove('open'));
-  $('sheetBackdrop').hidden = true;
+$('restoreFile').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const s = parseBackup(await f.text());
+    if (!confirm(`Replace the data on this phone with this backup (${plural(s.rounds.length, 'round')})?`)) return;
+    state = s;
+    persist();
+    renderTab();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+function locateOnce(then) {
+  if (!('geolocation' in navigator)) return;
+  navigator.geolocation.getCurrentPosition(
+    (p) => { here = [p.coords.latitude, p.coords.longitude]; then && then(); },
+    () => {},
+    { enableHighAccuracy: false, maximumAge: 300000, timeout: 15000 }
+  );
 }
 
-function openClubSheet(purpose) {
-  clubPurpose = purpose;
-  $('clubSheetTitle').textContent = purpose === 'add' ? 'Missed shot: which club?' : 'Next shot';
-  $('clubSheetHint').hidden = purpose === 'add';
+// ===================================================================== Start
+
+let startCourse = null;
+
+function openStart(c) {
+  startCourse = c;
+  $('startCourse').textContent = c.name;
+  const missing = c.holes < c.holes_expected;
+  $('startInfo').textContent = `${c.city} · ${c.holes_expected} holes${c.par ? ` · Par ${c.par}` : ''}` +
+    (missing ? `. Map data covers ${c.holes} of ${c.holes_expected} holes; the others can still be scored.` : '');
+  const sel = $('startHole');
+  sel.innerHTML = '';
+  for (let n = 1; n <= c.holes_expected; n++) sel.add(new Option(`Hole ${n}`, n));
+  $('startDialog').showModal();
+}
+
+$('startGo').addEventListener('click', async () => {
+  $('startDialog').close();
+  if (activeRound() && !confirm('Finish the round in progress and start a new one?')) return;
+  if (activeRound()) activeRound().finished_at = new Date().toISOString();
+  try {
+    const c = await loadCourse(startCourse.id);
+    const r = newRound({ course: c, startHole: Number($('startHole').value) });
+    state.rounds.push(r);
+    state.active_round_id = r.id;
+    persist();
+    openRound(r.id);
+    downloadForOffline(c).catch(() => {});
+  } catch (e) {
+    alert(e.message);
+  }
+});
+$('startPreview').addEventListener('click', () => { $('startDialog').close(); openBrowse(startCourse.id, 1); });
+$('resumeCard').addEventListener('click', () => { const r = activeRound(); if (r) openRound(r.id); });
+document.querySelectorAll('.tabbar button').forEach((b) => b.addEventListener('click', () => showHome(b.dataset.tab)));
+
+// ====================================================================== Play
+
+async function openRound(id) {
+  const r = state.rounds.find((x) => x.id === id);
+  if (!r) return;
+  play = { mode: 'round', roundId: id, courseId: r.course_id, n: r.current_hole };
+  await enterPlay();
+}
+
+async function openBrowse(courseId, n) {
+  play = { mode: 'browse', courseId, n };
+  await enterPlay();
+}
+
+async function enterPlay() {
+  try {
+    course = await loadCourse(play.courseId);
+  } catch (e) {
+    course = null;
+  }
+  editMode = false;
+  undoStack = [];
+  target = null;
+  $('home').hidden = true;
+  $('play').hidden = false;
+  buildHoleTabs();
+  startLiveGps();
+  const r = playRound();
+  if (isLive(r) && !state.no_wake) { wantWake = true; requestWake(); }
+  showHole(play.n);
+}
+
+function holeCount() {
+  const r = playRound();
+  return r ? r.holes_total : (course ? course.holes_expected : 18);
+}
+
+function buildHoleTabs() {
+  const nav = $('holeTabs');
+  nav.innerHTML = '';
+  for (let n = 1; n <= holeCount(); n++) {
+    const b = document.createElement('button');
+    b.textContent = n;
+    b.dataset.n = n;
+    b.addEventListener('click', () => { if (!busy && !editMode) goHole(n); });
+    nav.appendChild(b);
+  }
+}
+
+function goHole(n) {
+  const r = playRound();
+  if (isLive(r)) { r.current_hole = n; persist(); }
+  showHole(n);
+}
+
+function showHole(n) {
+  play.n = n;
+  target = null;
+  const ch = courseHole(course, n);
+  const msg = course
+    ? 'No aerial image for this hole yet (not mapped in OpenStreetMap). You can still record shots and putts.'
+    : 'Could not load this course.';
+  hv.show(imageUrl(course, ch), ch && ch.image ? ch.image : null, msg);
+  render();
+}
+
+function render() {
+  if (!play) return;
+  const r = playRound();
+  const n = play.n;
+  const ch = courseHole(course, n);
+  const live = isLive(r);
+
+  // Header
+  $('playCourse').textContent = r ? r.course_name : (course ? course.name : '');
+  $('playDate').textContent = r ? r.date : 'Course preview';
+  const sp = r ? scoreToPar(r, parOf(course)) : null;
+  $('scoreBoxBtn').hidden = !r;
+  if (r) $('scoreBoxBtn').textContent = sp.holes ? fmtToPar(sp.diff) : String(sp.strokes || 0);
+
+  // Hole tabs
+  for (const b of $('holeTabs').children) {
+    const k = Number(b.dataset.n);
+    b.classList.toggle('on', k === n);
+    b.classList.toggle('played', !!(r && holeScore(r, k).strokes));
+  }
+  const cur = $('holeTabs').children[n - 1];
+  if (cur) cur.scrollIntoView({ inline: 'center', block: 'nearest' });
+
+  // Hole info line
+  const len = ch ? `${yds(ch.length_m)} yds` : '';
+  $('holeInfo').innerHTML = `<strong>Hole ${n}</strong>${ch && ch.par ? ` · Par ${ch.par}` : ''}${len ? ` · ${len}` : ''}`;
+
+  // Bottom bar
+  $('playBottom').hidden = !r || editMode;
+  $('browseBottom').hidden = !!r || editMode;
+  $('fabs').hidden = !r || editMode;
+  $('shotBtn').hidden = !live;
+  if (r) {
+    const sc = holeScore(r, n);
+    const par = ch ? ch.par : null;
+    if (par && sc.strokes) {
+      $('holeScore').textContent = toParWords(sc.strokes - par);
+      $('holeScoreLabel').textContent = 'SCORE';
+    } else {
+      $('holeScore').textContent = sc.strokes || '–';
+      $('holeScoreLabel').textContent = 'STROKES';
+    }
+    $('puttCount').textContent = sc.putts;
+  }
+
+  // Edit bar
+  $('editBar').hidden = !editMode;
+  $('editHint').hidden = !editMode;
+  $('editTitle').textContent = `Edit Hole ${n}`;
+  $('undoBtn').disabled = !undoStack.length;
+
+  drawOverlay();
+  renderGreenPanel();
+}
+
+function drawOverlay() {
+  const r = playRound();
+  const n = play.n;
+  const ch = courseHole(course, n);
+  const o = { editMode, shots: [], end: null, me: null, target: null };
+  if (r) {
+    const shots = shotsOnHole(r, n);
+    const a = analyzeHole(r, n, ch);
+    o.shots = shots.map((s) => ({
+      id: s.id, lat: s.lat, lon: s.lon, club: s.club, excluded: s.exclude_from_stats,
+      text: s.distance_m == null ? '' : `${yds(s.distance_m)} yds`,
+    }));
+    const h = r.holes[String(n)];
+    if (h && h.end) {
+      o.end = {
+        lat: h.end.lat, lon: h.end.lon, badge: h.putts ? `${h.putts}p` : '⚑',
+        text: a.firstPuttM != null ? `${Math.round(a.firstPuttM * M_TO_FT)} ft` : '',
+      };
+    }
+  }
+  if (me && ch && distM([me.lat, me.lon], ch.green_center) < 1500) o.me = [me.lat, me.lon];
+  if (target && ch) {
+    const from = targetFrom(ch);
+    o.target = {
+      lat: target.lat, lon: target.lon,
+      from, to: ch.green_center,
+      l1: from ? `${yds(distM(from, [target.lat, target.lon]))} yds` : '',
+      l2: `${yds(distM([target.lat, target.lon], ch.green_center))} yds`,
+    };
+  }
+  hv.setOverlay(o);
+}
+
+// Measure a tapped target from the player if on this hole, else from the
+// last shot, else from the tee.
+function targetFrom(ch) {
+  if (me && distM([me.lat, me.lon], ch.green_center) < 700) return [me.lat, me.lon];
+  const r = playRound();
+  if (r) {
+    const shots = shotsOnHole(r, play.n).filter((s) => s.lat != null);
+    if (shots.length) return [shots[shots.length - 1].lat, shots[shots.length - 1].lon];
+  }
+  return ch.tee;
+}
+
+function renderGreenPanel() {
+  const ch = courseHole(course, play.n);
+  const near = me && ch && distM([me.lat, me.lon], ch.green_center) < 700;
+  $('greenPanel').hidden = !near || editMode;
+  if (!near) return;
+  const g = greenDistances([me.lat, me.lon], ch.green, ch.green_center);
+  $('gFront').textContent = g.front != null ? yds(g.front) : '–';
+  $('gCenter').textContent = yds(g.center);
+  $('gBack').textContent = g.back != null ? yds(g.back) : '–';
+}
+
+function onMapTap(lat, lon) {
+  if (editMode) {
+    const r = playRound();
+    if (!r) return;
+    clubPick = { kind: 'add', lat, lon };
+    openClubSheet('Add a missed shot: which club?', false);
+    return;
+  }
+  if (target && distM([target.lat, target.lon], [lat, lon]) < 10) target = null;
+  else target = { lat, lon };
+  drawOverlay();
+}
+
+// ---- Live GPS for the rangefinder (front/center/back) --------------------------------
+
+function startLiveGps() {
+  if (watchId !== null || !('geolocation' in navigator)) return;
+  watchId = navigator.geolocation.watchPosition(
+    (p) => {
+      me = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy };
+      here = [me.lat, me.lon];
+      if (play && !busy) { renderGreenPanel(); drawOverlay(); }
+    },
+    () => {},
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 }
+  );
+}
+
+function stopLiveGps() {
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+}
+
+// ---- Toast ---------------------------------------------------------------------------------
+
+function toast(html, opts = {}) {
+  clearTimeout(toastTimer);
+  $('toastText').innerHTML = html;
+  $('toast').classList.toggle('error', !!opts.error);
+  $('toast').hidden = false;
+  $('toastBar').hidden = !opts.progress;
+  if (!opts.sticky) toastTimer = setTimeout(() => { $('toast').hidden = true; }, opts.ms || 6000);
+}
+
+// ---- Recording shots -----------------------------------------------------------------------
+
+function openClubSheet(title, showHint) {
+  $('clubSheetTitle').textContent = title;
+  $('clubSheetHint').hidden = !showHint;
   const grid = $('clubGrid');
   grid.innerHTML = '';
   for (const club of state.bag) {
     const b = document.createElement('button');
     b.textContent = club;
-    b.addEventListener('click', () => onClubPicked(club));
+    b.addEventListener('click', () => { closeSheets(); onClubPicked(club); });
     grid.appendChild(b);
   }
   openSheet('clubSheet');
 }
 
+$('shotBtn').addEventListener('click', () => {
+  if (busy) return;
+  clubPick = { kind: 'shot' };
+  openClubSheet('Which club?', true);
+});
+
 function onClubPicked(club) {
-  closeSheets();
-  if (clubPurpose === 'add') addMissedShot(club);
-  else recordShot(club);
+  if (!clubPick) return;
+  if (clubPick.kind === 'add') {
+    const r = playRound();
+    snapshot();
+    const s = insertShot(r, { holeNo: play.n, club, lat: clubPick.lat, lon: clubPick.lon });
+    persist();
+    render();
+    toast(`Added <strong>${esc(club)}</strong> as shot ${s.shot_no}. Use ☰ list ↑↓ if the order is wrong.`);
+  } else {
+    recordShot(club);
+  }
+  clubPick = null;
 }
 
-// ---- Recording on the course -------------------------------------------------------------
+async function takeReading(label) {
+  busy = true;
+  $('shotBtn').disabled = true;
+  $('puttPlus').disabled = true;
+  $('toastFill').style.width = '0%';
+  toast(`<strong>Hold still…</strong> ${label}`, { sticky: true, progress: true });
+  try {
+    const pos = await sampleBestPosition((acc, count, elapsed) => {
+      $('toastFill').style.width = `${Math.min(100, (elapsed / SAMPLE_MS) * 100)}%`;
+      $('toastText').innerHTML = `<strong>Hold still…</strong> ${label} · ±${acc.toFixed(0)} m`;
+    });
+    return pos;
+  } catch (e) {
+    toast(geoErrorText(e), { error: true });
+    return null;
+  } finally {
+    busy = false;
+    $('shotBtn').disabled = false;
+    $('puttPlus').disabled = false;
+  }
+}
 
 async function recordShot(club) {
-  const round = activeRound(state);
-  if (busy || !round) return;
-  if (wantWakeLock) requestWakeLock(); // a tap is a good moment to re-take it
+  const r = playRound();
+  if (!isLive(r) || busy) return;
+  if (wantWake) requestWake();
+  const pos = await takeReading(`recording ${esc(club)}`);
+  if (!pos && !confirm(`No GPS position. Record the ${club} shot anyway?\n(It counts for your score but gets no distance.)`)) return;
 
-  const pos = await takeReading(`recording ${escapeHtml(club)}`);
-  if (!pos) {
-    // Keep the stroke for the score even when the GPS fails.
-    if (!confirm(`No GPS position. Record the ${club} shot anyway?\n(It counts for your score but gets no distance.)`)) return;
+  // Moving on? After putting out, or when standing on the next tee far from
+  // this green, the shot belongs to the next hole.
+  const n = play.n;
+  const sc = holeScore(r, n);
+  const ch = courseHole(course, n);
+  const nextN = nextHoleNo(r, n);
+  const nextCh = courseHole(course, nextN);
+  let advance = sc.putts > 0;
+  if (!advance && pos && sc.shots > 0 && ch && nextCh) {
+    const p = [pos.lat, pos.lon];
+    advance = distM(p, nextCh.tee) < 60 && distM(p, ch.green_center) > 90;
   }
-  const shot = addShot(round, { club, pos });
-  persist();
-
-  const prev = shotsOnHole(round, shot.hole_no).find((s) => s.shot_no === shot.shot_no - 1);
-  let msg = `Shot ${shot.shot_no} · <strong>${escapeHtml(club)}</strong> saved ` + (pos ? accuracyNote(pos) : '(no GPS)');
-  if (prev) {
-    msg += `<br>Shot ${prev.shot_no} · ${escapeHtml(prev.club)}: <strong>${prev.distance_m == null ? 'no distance' : fmtYds(prev.distance_m)}</strong>`;
-  }
-  if (pos) showMe(pos.lat, pos.lon);
-  render();
-  showBanner(msg, { error: !!pos && pos.accuracy_m > FLAG_ACCURACY_M });
-}
-
-// The last full shot's destination: ball on the green, or the cup on a chip-in.
-async function recordHoleEnd(round, label) {
-  const pos = await takeReading(label);
-  if (!pos) return null;
-  setHoleEnd(round, round.current_hole, pos);
-  showMe(pos.lat, pos.lon);
-  return pos;
-}
-
-async function onPuttPlus() {
-  const round = activeRound(state);
-  if (busy || !round) return;
-  const h = hole(round, round.current_hole);
-  const needsEnd = h.putts === 0 && !h.end && shotsOnHole(round, round.current_hole).length > 0;
-
   let msg = '';
-  let error = false;
-  if (needsEnd) {
-    const pos = await recordHoleEnd(round, 'marking the ball on the green');
-    const last = shotsOnHole(round, round.current_hole).slice(-1)[0];
-    if (pos) {
-      msg = `Ball on green ${accuracyNote(pos)}<br>Shot ${last.shot_no} · ${escapeHtml(last.club)}: ` +
-        `<strong>${last.distance_m == null ? 'no distance' : fmtYds(last.distance_m)}</strong>`;
-    } else {
-      msg = 'Putt counted. The ball position was not recorded, so the last shot has no distance.';
-      error = true;
-    }
+  if (advance && sc.strokes) {
+    finishHole(r, n);
+    const par = ch ? ch.par : null;
+    msg = `Hole ${n}: <strong>${sc.strokes}</strong>${par ? ` (${toParWords(sc.strokes - par)})` : ''}. `;
+    r.current_hole = nextN;
+    play.n = nextN;
   }
-  addPutt(round, round.current_hole);
+  const shot = addShot(r, { club, pos, holeNo: play.n });
   persist();
-  render();
-  if (msg) showBanner(msg, { error });
+  if (msg) showHole(play.n); else render();
+
+  const prev = shotsOnHole(r, shot.hole_no).find((s) => s.shot_no === shot.shot_no - 1);
+  msg += `Shot ${shot.shot_no} · <strong>${esc(club)}</strong> saved` +
+    (pos ? ` <span class="acc ${pos.accuracy_m > FLAG_ACCURACY_M ? 'bad' : ''}">±${pos.accuracy_m.toFixed(0)} m</span>` : ' (no GPS)');
+  if (prev) msg += `<br>${esc(prev.club)}: <strong>${prev.distance_m == null ? 'no distance' : `${yds(prev.distance_m)} yds`}</strong>`;
+  toast(msg, { error: !!pos && pos.accuracy_m > FLAG_ACCURACY_M });
 }
 
-function onPuttMinus() {
-  const round = activeRound(state);
-  if (busy || !round) return;
-  removePutt(round, round.current_hole);
-  persist();
-  render();
-}
-
-async function onFinishHole() {
-  const round = activeRound(state);
-  if (busy || !round) return;
-  const n = round.current_hole;
-  const sum = holeSummary(round, n);
-  const h = hole(round, n);
-
-  if (sum.strokes === 0 && !confirm(`Nothing recorded on hole ${n}. Skip to hole ${nextHoleNo(n)}?`)) return;
-
-  // Holed out from off the green (no putts): offer to record the cup so the
-  // last shot gets a distance.
-  if (sum.shots > 0 && sum.putts === 0 && !h.end) {
-    if (confirm('No putts on this hole. Did you hole out from off the green?\n\n' +
-      'OK: stand at the cup and record it (gives the last shot a distance).\n' +
-      'Cancel: finish without it.')) {
-      await recordHoleEnd(round, 'recording the cup');
-    }
+$('puttPlus').addEventListener('click', async () => {
+  const r = playRound();
+  if (!r || busy) return;
+  const n = play.n;
+  const h = hole(r, n);
+  // The first putt also marks where the ball is on the green, which gives
+  // the approach shot its distance. Only when standing there (live round).
+  if (isLive(r) && h.putts === 0 && !h.end && shotsOnHole(r, n).length) {
+    const pos = await takeReading('marking your ball on the green');
+    if (pos) setHoleEnd(r, n, pos);
   }
-
-  finishHole(round);
+  setPutts(r, n, h.putts + 1);
   persist();
   render();
-  const vsPar = sum.par ? ` (${toParWords(sum.strokes - sum.par)})` : '';
-  showBanner(`Hole ${n}: <strong>${sum.strokes}</strong> strokes${vsPar}, ${plural(sum.putts, 'putt')}. Now on hole ${round.current_hole}.`);
+});
 
-  if (finishedHoleCount(round) >= HOLES && confirm('That was your 18th hole. End the round?')) endRound();
+$('puttMinus').addEventListener('click', () => {
+  const r = playRound();
+  if (!r || busy) return;
+  setPutts(r, play.n, hole(r, play.n).putts - 1);
+  persist();
+  render();
+});
+
+// ---- Editing (Arccos-style: drag shots, tap to add, tap a shot to change it) ---------------
+
+function snapshot() {
+  const r = playRound();
+  undoStack.push(JSON.stringify(r));
+  if (undoStack.length > 30) undoStack.shift();
 }
 
-function goToHole(n) {
-  const round = activeRound(state);
-  if (busy || !round || movingShotId || pendingAdd) return;
-  round.current_hole = n;
+$('editBtn').addEventListener('click', () => {
+  if (busy) return;
+  editMode = true;
+  undoStack = [];
+  target = null;
+  render();
+});
+$('doneBtn').addEventListener('click', () => { editMode = false; render(); });
+$('undoBtn').addEventListener('click', () => {
+  const r = playRound();
+  if (!r || !undoStack.length) return;
+  const prev = JSON.parse(undoStack.pop());
+  Object.assign(r, prev);
+  persist();
+  render();
+});
+
+function onPinDrag(id, lat, lon) {
+  const r = playRound();
+  if (!r) return;
+  snapshot();
+  setShotPosition(r, id, lat, lon);
   persist();
   render();
 }
 
-// ---- Editing: shot list, reorder, add missed shot, move on map ------------------------------
-
-function openEditSheet() {
-  renderShotList();
-  openSheet('editSheet');
+function openShotSheet(id) {
+  const r = playRound();
+  const s = r && findShot(r, id);
+  if (!s) return;
+  sheetShotId = id;
+  const a = analyzeHole(r, s.hole_no, courseHole(course, s.hole_no));
+  $('shotSheetTitle').textContent = `Shot ${s.shot_no}: ${s.club}`;
+  $('shotSheetInfo').textContent = [
+    s.distance_m == null ? 'no distance' : `${yds(s.distance_m)} yds`,
+    a.labels[s.shot_no - 1],
+    s.accuracy_m == null ? (s.added_by_hand ? 'added by hand' : 'no GPS') : `GPS ±${s.accuracy_m.toFixed(0)} m`,
+    s.moved_by_hand ? 'moved by hand' : '',
+    new Date(s.recorded_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+  ].filter(Boolean).join(' · ');
+  $('shotExclude').textContent = s.exclude_from_stats ? 'Include' : 'Exclude';
+  const n = shotsOnHole(r, s.hole_no).length;
+  $('shotEarlier').disabled = s.shot_no === 1;
+  $('shotLater').disabled = s.shot_no === n;
+  const grid = $('shotClubGrid');
+  grid.innerHTML = '';
+  for (const club of state.bag) {
+    const b = document.createElement('button');
+    b.textContent = club;
+    b.classList.toggle('on', club === s.club);
+    b.addEventListener('click', () => shotChange(() => editShot(r, id, { club })));
+    grid.appendChild(b);
+  }
+  openSheet('shotSheet');
 }
+
+function shotChange(fn, keepOpen = false) {
+  snapshot();
+  fn();
+  persist();
+  render();
+  if ($('listSheet').classList.contains('open')) renderShotList();
+  if (keepOpen && sheetShotId) openShotSheet(sheetShotId); else closeSheet('shotSheet');
+}
+
+$('shotEarlier').addEventListener('click', () => {
+  const r = playRound(); const s = findShot(r, sheetShotId);
+  shotChange(() => moveShot(r, s.id, s.shot_no - 2), true);
+});
+$('shotLater').addEventListener('click', () => {
+  const r = playRound(); const s = findShot(r, sheetShotId);
+  shotChange(() => moveShot(r, s.id, s.shot_no), true);
+});
+$('shotExclude').addEventListener('click', () => {
+  const r = playRound(); const s = findShot(r, sheetShotId);
+  shotChange(() => editShot(r, s.id, { exclude_from_stats: !s.exclude_from_stats }), true);
+});
+$('shotDelete').addEventListener('click', () => {
+  if (!confirm('Delete this shot? The shot before it will be re-measured.')) return;
+  const r = playRound();
+  shotChange(() => deleteShot(r, sheetShotId));
+});
+
+// ---- Shot list (☰) ----------------------------------------------------------------------------
 
 function renderShotList() {
-  const round = activeRound(state);
-  if (!round) return;
-  const n = round.current_hole;
-  const shots = shotsOnHole(round, n);
-  $('editSheetTitle').textContent = `Hole ${n} shots`;
+  const r = playRound();
+  const n = play.n;
+  const ch = courseHole(course, n);
+  const a = analyzeHole(r, n, ch);
+  const sc = holeScore(r, n);
+  $('listTitle').textContent = `Hole ${n}${ch && ch.par ? ` · Par ${ch.par}` : ''} · ${plural(sc.strokes, 'stroke')}`;
   const ol = $('shotList');
   ol.innerHTML = '';
-  if (!shots.length) ol.innerHTML = '<li class="small">No shots on this hole yet.</li>';
-  shots.forEach((s, i) => {
-    const notes = [
-      s.accuracy_m == null ? (s.added_by_hand ? 'added by hand' : 'no GPS') : `±${s.accuracy_m.toFixed(0)} m`,
-      fmtTime(s.recorded_at),
-      s.moved_by_hand ? 'moved' : '',
-      s.exclude_from_stats ? 'excluded' : '',
-    ].filter(Boolean).join(' · ');
+  shotsOnHole(r, n).forEach((s, i) => {
     const li = document.createElement('li');
-    li.innerHTML = `
-      <button class="shot-main${s.exclude_from_stats ? ' excluded' : ''}">
-        <span class="shot-badge">${escapeHtml(s.club)}</span>
-        <span><span class="shot-dist">${s.distance_m == null ? '–' : fmtYds(s.distance_m)}</span>
-          <span class="shot-meta">Shot ${s.shot_no} · ${notes}</span></span>
-      </button>
-      <button class="order-btn up" aria-label="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
-      <button class="order-btn down" aria-label="Move down" ${i === shots.length - 1 ? 'disabled' : ''}>↓</button>`;
-    li.querySelector('.shot-main').addEventListener('click', () => openEditShot(s.id));
-    li.querySelector('.up').addEventListener('click', () => reorder(s.id, i - 1));
-    li.querySelector('.down').addEventListener('click', () => reorder(s.id, i + 1));
+    li.innerHTML = `<button class="shot-row${s.exclude_from_stats ? ' excluded' : ''}">
+      <span class="badge">${esc(s.club)}</span>
+      <span class="row-main"><strong>${s.distance_m == null ? '–' : `${yds(s.distance_m)} Yards`}</strong></span>
+      <span class="row-side">${esc(a.labels[i])}</span></button>`;
+    li.querySelector('button').addEventListener('click', () => openShotSheet(s.id));
     ol.appendChild(li);
   });
-}
-
-function reorder(shotId, newIndex) {
-  moveShot(activeRound(state), shotId, newIndex);
-  persist();
-  render();
-  renderShotList();
-}
-
-function startAddMissedShot() {
-  closeSheets();
-  showBanner('<strong>Add a missed shot:</strong> tap the map where that shot was hit.', {
-    actions: { onCancel: endAddMissedShot },
-  });
-  onMapTap((lat, lon) => {
-    pendingAdd = { lat, lon };
-    onMapTap(null);
-    openClubSheet('add');
-  });
-}
-
-function addMissedShot(club) {
-  const round = activeRound(state);
-  if (!round || !pendingAdd) return;
-  const shot = insertShot(round, { holeNo: round.current_hole, club, lat: pendingAdd.lat, lon: pendingAdd.lon });
-  persist();
-  endAddMissedShot();
-  render(false);
-  showBanner(`Added <strong>${escapeHtml(club)}</strong> as shot ${shot.shot_no}. Wrong place in the order? Use EDIT → ↑ ↓.`);
-}
-
-function endAddMissedShot() {
-  pendingAdd = null;
-  onMapTap(null);
-  hideBanner();
-}
-
-function startMoveShot(shotId) {
-  movingShotId = shotId;
-  pendingMove = null;
-  closeSheets();
-  render(false);
-  showBanner('<strong>Drag the large pin</strong> to where the ball really was, then tap Done.', {
-    actions: {
-      onCancel: () => endMoveShot(false),
-      onDone: () => endMoveShot(true),
-    },
-  });
-}
-
-function endMoveShot(keep) {
-  const round = activeRound(state);
-  if (keep && pendingMove && round) {
-    setShotPosition(round, movingShotId, pendingMove.lat, pendingMove.lon);
-    persist();
+  if (sc.putts) {
+    const li = document.createElement('li');
+    li.innerHTML = `<div class="shot-row"><span class="badge putt">Pu</span>
+      <span class="row-main"><strong>${plural(sc.putts, 'putt')}</strong></span>
+      <span class="row-side">${a.firstPuttM != null ? `1st putt ≈ ${Math.round(a.firstPuttM * M_TO_FT)} ft` : ''}</span></div>`;
+    ol.appendChild(li);
   }
-  movingShotId = null;
-  pendingMove = null;
-  hideBanner();
-  render(false);
+  if (!ol.children.length) ol.innerHTML = '<li class="hint">No shots on this hole yet.</li>';
 }
 
-function fillSelect(sel, values, selected) {
-  sel.innerHTML = '';
-  for (const v of values) {
-    const o = document.createElement('option');
-    o.value = v;
-    o.textContent = v;
-    if (String(v) === String(selected)) o.selected = true;
-    sel.appendChild(o);
-  }
-}
+$('listBtn').addEventListener('click', () => { renderShotList(); openSheet('listSheet'); });
 
-function openEditShot(shotId) {
-  const round = activeRound(state);
-  const s = round && findShot(round, shotId);
-  if (!s || movingShotId || pendingAdd) return;
-  editingShotId = shotId;
-  $('editTitle').textContent = `Hole ${s.hole_no}, shot ${s.shot_no}`;
-  $('editInfo').textContent = `${new Date(s.recorded_at).toLocaleString()} · ` +
-    (s.accuracy_m == null ? (s.added_by_hand ? 'added by hand' : 'no GPS') : `±${s.accuracy_m.toFixed(1)} m`) +
-    ` · ${s.distance_m == null ? 'no distance' : fmtYds(s.distance_m)}`;
-  const clubs = state.bag.includes(s.club) ? state.bag : [...state.bag, s.club];
-  fillSelect($('editClub'), clubs, s.club);
-  fillSelect($('editHole'), Array.from({ length: HOLES }, (_, i) => i + 1), s.hole_no);
-  $('editExclude').checked = s.exclude_from_stats;
-  $('editMoveBtn').disabled = s.lat == null;
-  $('editShotDialog').showModal();
-}
+// ---- Scorecard ---------------------------------------------------------------------------------
 
-function afterShotEdit() {
-  persist();
-  $('editShotDialog').close();
-  render(false);
-  if ($('editSheet').classList.contains('open')) renderShotList();
-}
-
-function saveEditShot() {
-  const round = activeRound(state);
-  if (!round || !editingShotId) return;
-  editShot(round, editingShotId, {
-    club: $('editClub').value,
-    hole_no: Number($('editHole').value),
-    exclude_from_stats: $('editExclude').checked,
-  });
-  afterShotEdit();
-}
-
-function deleteEditShot() {
-  const round = activeRound(state);
-  if (!round || !editingShotId) return;
-  if (!confirm('Delete this shot? The shot before it will be re-measured to the next one.')) return;
-  deleteShot(round, editingShotId);
-  afterShotEdit();
-}
-
-// ---- Scorecard ------------------------------------------------------------------------------
-
-const PAR_CYCLE = [null, 3, 4, 5];
-const FAIRWAY_CYCLE = [null, 'hit', 'left', 'right'];
+const FW_CYCLE = [null, 'hit', 'left', 'right'];
 const GIR_CYCLE = [null, true, false];
-const nextIn = (cycle, v) => cycle[(cycle.indexOf(v ?? null) + 1) % cycle.length];
-
-function scoreClass(sum) {
-  if (!sum.par || !sum.strokes) return '';
-  const d = sum.strokes - sum.par;
-  if (d < 0) return 'under';
-  if (d === 1) return 'over1';
-  if (d >= 2) return 'over2';
-  return '';
-}
+const cycle = (arr, v) => arr[(arr.indexOf(v ?? null) + 1) % arr.length];
 
 function openScorecard() {
   renderScorecard();
-  $('scorecardDialog').showModal();
+  $('scorecard').showModal();
 }
 
 function renderScorecard() {
-  const round = activeRound(state);
-  if (!round) return;
-  $('scCourse').textContent = round.course || 'Round';
-  $('scDate').textContent = round.date;
-  const tp = scoreToPar(round);
-  $('scTotal').innerHTML = `${totalStrokes(round)}<small>${tp.holes ? fmtToPar(tp.diff) + ` through ${plural(tp.holes, 'hole')} with par` : 'set par to see ±'}</small>`;
+  const r = playRound();
+  if (!r) return;
+  const sp = scoreToPar(r, parOf(course));
+  $('scCourse').textContent = r.course_name;
+  $('scDate').textContent = r.date;
+  $('scTotal').textContent = sp.strokes || '–';
+  $('scToPar').textContent = sp.holes ? fmtToPar(sp.diff) : '';
+  $('scEndRound').hidden = !isLive(r);
+  $('scDelete').hidden = isLive(r);
 
-  const box = $('scTables');
-  box.innerHTML = '';
-  const totals = { strokes: 0, putts: 0, fwHit: 0, fwOf: 0, gir: 0, girOf: 0 };
-  for (const [from, name] of [[1, 'OUT'], [10, 'IN']]) {
-    const holes = Array.from({ length: 9 }, (_, i) => from + i);
-    const sums = holes.map((n) => holeSummary(round, n));
-    const t = document.createElement('table');
-    t.className = 'sc-table';
-    const row = (label, cls, cells, total) => {
-      const tr = document.createElement('tr');
-      if (cls) tr.className = cls;
-      tr.innerHTML = `<th>${label}</th>`;
-      cells.forEach((c) => { const td = document.createElement('td'); if (c instanceof Node) td.appendChild(c); else td.innerHTML = c; tr.appendChild(td); });
-      const td = document.createElement('td');
-      td.className = 'sc-sum';
-      td.innerHTML = total;
-      tr.appendChild(td);
-      t.appendChild(tr);
-    };
-    const btn = (html, onClick) => {
-      const b = document.createElement('button');
-      b.innerHTML = html;
-      b.addEventListener('click', () => { onClick(); persist(); renderScorecard(); render(false); });
-      return b;
-    };
-
-    row('Hole', 'sc-hole', holes.map(String), name);
-    row('Par', '', holes.map((n, i) => btn(sums[i].par ?? '·', () => setPar(round, n, nextIn(PAR_CYCLE, sums[i].par)))),
-      sums.reduce((a, s) => a + (s.par || 0), 0) || '');
-    row('Score', '', holes.map((n, i) => {
-      const s = sums[i];
-      const b = document.createElement('button');
-      b.innerHTML = s.strokes ? `<span class="sc-score ${scoreClass(s)}">${s.strokes}</span>` : '';
-      b.addEventListener('click', () => { $('scorecardDialog').close(); goToHole(n); });
-      return b;
-    }), sums.reduce((a, s) => a + s.strokes, 0) || '');
-    row('Fairway', '', holes.map((n, i) => {
-      const s = sums[i];
-      if (s.par === 3) return '';
-      const sym = { hit: '<span class="sc-hit">✓</span>', left: '←', right: '→' }[s.fairway] || '<span class="sc-miss">·</span>';
-      return btn(sym, () => setFairway(round, n, nextIn(FAIRWAY_CYCLE, s.fairway)));
-    }), (() => {
-      const elig = sums.filter((s) => s.par !== 3 && s.fairway != null);
-      totals.fwHit += elig.filter((s) => s.fairway === 'hit').length;
-      totals.fwOf += elig.length;
-      return elig.length ? `${elig.filter((s) => s.fairway === 'hit').length}/${elig.length}` : '';
-    })());
-    row('GIR', '', holes.map((n, i) => {
-      const s = sums[i];
-      const sym = s.gir === true ? '<span class="sc-hit">✓</span>' : s.gir === false ? '✗' : '<span class="sc-miss">·</span>';
-      return btn(sym, () => setGir(round, n, nextIn(GIR_CYCLE, s.gir)));
-    }), (() => {
-      const set = sums.filter((s) => s.gir != null);
-      totals.gir += set.filter((s) => s.gir).length;
-      totals.girOf += set.length;
-      return set.length ? `${set.filter((s) => s.gir).length}/${set.length}` : '';
-    })());
-    row('Putts', '', holes.map((n, i) => {
-      const wrap = document.createElement('div');
-      wrap.className = 'sc-putts';
-      wrap.appendChild(btn('+', () => addPutt(round, n)));
-      const span = document.createElement('span');
-      span.textContent = sums[i].putts;
-      wrap.appendChild(span);
-      wrap.appendChild(btn('−', () => removePutt(round, n)));
-      return wrap;
-    }), sums.reduce((a, s) => a + s.putts, 0));
-
-    totals.strokes += sums.reduce((a, s) => a + s.strokes, 0);
-    totals.putts += sums.reduce((a, s) => a + s.putts, 0);
-    box.appendChild(t);
+  const N = r.holes_total;
+  const rows = { hole: [], par: [], score: [], fw: [], gir: [], putts: [], first: [], edit: [] };
+  const tot = { par: 0, score: 0, fwHit: 0, fwAll: 0, gir: 0, girAll: 0, putts: 0, first: [] };
+  for (let n = 1; n <= N; n++) {
+    const ch = courseHole(course, n);
+    const sc = holeScore(r, n);
+    const a = analyzeHole(r, n, ch);
+    const h = r.holes[String(n)] || {};
+    rows.hole.push(`<th>${n}</th>`);
+    rows.par.push(`<td>${a.par || ''}</td>`);
+    let cls = '';
+    if (a.par && sc.strokes) {
+      const d = sc.strokes - a.par;
+      cls = d <= -1 ? 'under' : d === 1 ? 'bogey' : d >= 2 ? 'double' : '';
+    }
+    rows.score.push(`<td><span class="sc-num ${cls}">${sc.strokes || ''}</span></td>`);
+    const fwSym = { hit: '<span class="ok">✓</span>', left: '←', right: '→' }[a.fairway] || '';
+    rows.fw.push(a.par === 3 ? '<td class="na"></td>' :
+      `<td><button data-fw="${n}" class="${h.fairway ? 'manual' : ''}">${sc.strokes ? fwSym || '·' : ''}</button></td>`);
+    rows.gir.push(`<td><button data-gir="${n}" class="${h.gir !== null && h.gir !== undefined ? 'manual' : ''}">${
+      sc.strokes ? (a.gir === true ? '<span class="ok">✓</span>' : a.gir === false ? '✕' : '·') : ''}</button></td>`);
+    rows.putts.push(`<td class="putts"><button data-pp="${n}">+</button><span>${sc.strokes ? sc.putts : ''}</span><button data-pm="${n}">−</button></td>`);
+    rows.first.push(`<td>${a.firstPuttM != null ? Math.round(a.firstPuttM * M_TO_FT) : ''}</td>`);
+    rows.edit.push(`<td><button data-edit="${n}">✎</button></td>`);
+    if (a.par) tot.par += a.par;
+    tot.score += sc.strokes;
+    if (sc.strokes && a.fairway) { tot.fwAll++; if (a.fairway === 'hit') tot.fwHit++; }
+    if (sc.strokes && a.gir !== null) { tot.girAll++; if (a.gir) tot.gir++; }
+    tot.putts += sc.putts;
+    if (a.firstPuttM != null) tot.first.push(a.firstPuttM);
   }
+  const avgFirst = tot.first.length ? (tot.first.reduce((x, y) => x + y, 0) / tot.first.length) * M_TO_FT : null;
+  const line = (label, cells, total, cls = '') => `<tr class="${cls}"><th class="lab">${label}</th>${cells.join('')}<td class="tot">${total}</td></tr>`;
+  $('scTable').innerHTML = [
+    line('Hole', rows.hole, 'TOTAL', 'hole-row'),
+    line('Par', rows.par, tot.par || ''),
+    line('Score', rows.score, tot.score || '', 'score-row'),
+    line('Fairway', rows.fw, tot.fwAll ? `${tot.fwHit}/${tot.fwAll}` : ''),
+    line('GIR', rows.gir, tot.girAll ? `${tot.gir}/${tot.girAll}` : ''),
+    line('Putts', rows.putts, tot.putts),
+    line('1st Putt (ft)', rows.first, avgFirst ? avgFirst.toFixed(1) : ''),
+    line('Edit Hole', rows.edit, ''),
+  ].join('');
+  $('scStats').textContent = '';
 
-  $('scSummary').innerHTML = `
-    <div><strong>${totals.strokes}</strong><span class="small">Strokes</span></div>
-    <div><strong>${totals.fwOf ? `${totals.fwHit}/${totals.fwOf}` : '–'}</strong><span class="small">Fairways</span></div>
-    <div><strong>${totals.girOf ? `${totals.gir}/${totals.girOf}` : '–'}</strong><span class="small">GIR</span></div>
-    <div><strong>${totals.putts}</strong><span class="small">Putts</span></div>`;
+  const tbl = $('scTable');
+  tbl.querySelectorAll('[data-fw]').forEach((b) => b.addEventListener('click', () => {
+    const n = Number(b.dataset.fw); const h = hole(r, n); h.fairway = cycle(FW_CYCLE, h.fairway); persist(); renderScorecard(); render();
+  }));
+  tbl.querySelectorAll('[data-gir]').forEach((b) => b.addEventListener('click', () => {
+    const n = Number(b.dataset.gir); const h = hole(r, n); h.gir = cycle(GIR_CYCLE, h.gir); persist(); renderScorecard(); render();
+  }));
+  tbl.querySelectorAll('[data-pp]').forEach((b) => b.addEventListener('click', () => {
+    const n = Number(b.dataset.pp); setPutts(r, n, hole(r, n).putts + 1); persist(); renderScorecard(); render();
+  }));
+  tbl.querySelectorAll('[data-pm]').forEach((b) => b.addEventListener('click', () => {
+    const n = Number(b.dataset.pm); setPutts(r, n, hole(r, n).putts - 1); persist(); renderScorecard(); render();
+  }));
+  tbl.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => {
+    $('scorecard').close(); goHole(Number(b.dataset.edit)); editMode = true; undoStack = []; render();
+  }));
 }
 
-// ---- Round start / end -----------------------------------------------------------------------
-
-function startRound() {
-  const round = newRound({ course: $('courseInput').value, startHole: Number($('startHoleInput').value) });
-  state.rounds.push(round);
-  state.active_round_id = round.id;
-  persist();
-  wantWakeLock = true;
-  requestWakeLock();
-  render();
-  locateOnce();
-}
-
-function endRound() {
-  const round = activeRound(state);
-  if (!round) return;
-  round.finished_at = new Date().toISOString();
+$('scoreBoxBtn').addEventListener('click', openScorecard);
+$('holeScoreBtn').addEventListener('click', openScorecard);
+$('scEndRound').addEventListener('click', () => {
+  const r = playRound();
+  if (!r || !confirm('Finish this round? You can still edit it from Activity.')) return;
+  finishHole(r, play.n);
+  r.finished_at = new Date().toISOString();
   state.active_round_id = null;
   persist();
-  $('menuDialog').close();
-  releaseWakeLock();
-  render();
-  if (confirm('Round saved on this phone. Export a backup copy now (CSV)?')) exportRound(round, 'csv');
-}
+  $('scorecard').close();
+  showHome('activity');
+  if (confirm('Round saved on this phone. Make a backup file now?')) {
+    saveFile(`golf-backup-${r.date}.json`, JSON.stringify(state), 'application/json');
+  }
+});
+$('scDelete').addEventListener('click', () => {
+  const r = playRound();
+  if (!r || !confirm(`Delete the ${r.date} round at ${r.course_name}? This can't be undone.`)) return;
+  state.rounds = state.rounds.filter((x) => x.id !== r.id);
+  persist();
+  $('scorecard').close();
+  showHome('activity');
+});
 
-// Center the map on the player before the first shot, so the hole is visible.
-// A quick, low-power fix is fine here; it isn't used for any distance.
-function locateOnce() {
-  if (!('geolocation' in navigator)) return;
-  navigator.geolocation.getCurrentPosition(
-    (p) => { centerOn(p.coords.latitude, p.coords.longitude, 17); showMe(p.coords.latitude, p.coords.longitude); },
-    () => { /* no position: the map just stays where it is */ },
-    { enableHighAccuracy: false, maximumAge: 60000, timeout: 15000 }
-  );
-}
+$('backBtn').addEventListener('click', () => showHome(play && play.mode === 'round' ? (isLive(playRound()) ? 'start' : 'activity') : tab));
+$('browseStartBtn').addEventListener('click', async () => {
+  const list = await loadIndex();
+  const c = list.find((x) => x.id === play.courseId);
+  if (c) openStart(c);
+});
 
-// ---- Bag -------------------------------------------------------------------------------------
+// ---- Sheets ---------------------------------------------------------------------------------------
+
+function openSheet(id) {
+  document.querySelectorAll('.sheet.open').forEach((s) => s.classList.remove('open'));
+  $('backdrop').hidden = false;
+  $(id).classList.add('open');
+}
+function closeSheet(id) {
+  $(id).classList.remove('open');
+  if (!document.querySelector('.sheet.open')) $('backdrop').hidden = true;
+}
+function closeSheets() {
+  document.querySelectorAll('.sheet.open').forEach((s) => s.classList.remove('open'));
+  $('backdrop').hidden = true;
+}
+$('backdrop').addEventListener('click', () => { closeSheets(); clubPick = null; });
+document.querySelectorAll('.sheet-cancel').forEach((b) => b.addEventListener('click', () => { closeSheets(); clubPick = null; }));
+
+// ---- Bag ------------------------------------------------------------------------------------------
 
 function openBag() {
-  if ($('menuDialog').open) $('menuDialog').close();
   $('bagText').value = state.bag.join('\n');
   $('bagDialog').showModal();
 }
-
-function saveBag() {
-  const clubs = $('bagText').value.split('\n').map((c) => c.trim()).filter(Boolean);
-  if (!clubs.length) { alert('Add at least one club.'); return; }
-  state.bag = [...new Set(clubs)];
+$('bagSave').addEventListener('click', () => {
+  const clubs = [...new Set($('bagText').value.split('\n').map((c) => c.trim()).filter(Boolean))];
+  if (!clubs.length) return;
+  state.bag = clubs;
   persist();
   $('bagDialog').close();
+  if (!play) renderTab();
+});
+$('bagReset').addEventListener('click', () => { $('bagText').value = DEFAULT_BAG.join('\n'); });
+
+// ---- Keep the screen on during a round (iOS pauses web apps when it locks) --------------------
+
+async function requestWake() {
+  if (!('wakeLock' in navigator) || (wakeLock && !wakeLock.released)) return;
+  try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* Low Power Mode */ }
 }
-
-// ---- Export ------------------------------------------------------------------------------------
-
-function stamp() {
-  return new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
-}
-
-function exportRound(round, kind) {
-  const name = `round-${round.date}-${round.id}`;
-  if (kind === 'csv') saveFile(`${name}.csv`, shotsToCsv([round]), 'text/csv');
-  else saveFile(`${name}.json`, JSON.stringify(round, null, 2), 'application/json');
-}
-
-function exportAll(kind) {
-  if (kind === 'csv') saveFile(`golf-shots-${stamp()}.csv`, shotsToCsv(state.rounds), 'text/csv');
-  else saveFile(`golf-data-${stamp()}.json`, JSON.stringify(state, null, 2), 'application/json');
-}
-
-// ---- Screen Wake Lock ------------------------------------------------------------------------
-// Keeps the screen on so iOS doesn't pause the app. The OS drops the lock
-// whenever the app goes to the background, so it's re-taken on return.
-
-async function requestWakeLock() {
-  if (!('wakeLock' in navigator)) { updateWakeButton(); return; }
-  if (wakeLock && !wakeLock.released) return;
-  try {
-    wakeLock = await navigator.wakeLock.request('screen');
-    wakeLock.addEventListener('release', updateWakeButton);
-  } catch (e) {
-    // Can be refused in Low Power Mode or when the app is not visible.
-  }
-  updateWakeButton();
-}
-
-async function releaseWakeLock() {
-  wantWakeLock = false;
-  if (wakeLock) { try { await wakeLock.release(); } catch (e) { /* already gone */ } }
+function releaseWake() {
+  wantWake = false;
+  if (wakeLock) wakeLock.release().catch(() => {});
   wakeLock = null;
-  updateWakeButton();
 }
-
-function toggleWakeLock() {
-  if (wantWakeLock) releaseWakeLock();
-  else { wantWakeLock = true; requestWakeLock(); }
-}
-
-function updateWakeButton() {
-  const on = wakeLock && !wakeLock.released;
-  $('wakeBtn').textContent = !('wakeLock' in navigator)
-    ? 'Keep screen on: not supported'
-    : `Keep screen on: ${on ? 'ON' : 'off'}`;
-}
-
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && wantWakeLock) requestWakeLock();
+  if (document.visibilityState === 'visible' && wantWake) requestWake();
 });
 
-// ---- Rendering ----------------------------------------------------------------------------------
+// ---- Start-up ----------------------------------------------------------------------------------------
 
-function renderStart() {
-  const ol = $('pastRounds');
-  ol.innerHTML = '';
-  const rounds = [...state.rounds].reverse();
-  if (!rounds.length) ol.innerHTML = '<li class="small">No rounds yet.</li>';
-  for (const r of rounds) {
-    const tp = scoreToPar(r);
-    const li = document.createElement('li');
-    li.innerHTML = `<button class="round-row"><strong>${r.date}</strong>&nbsp;${escapeHtml(r.course || 'Unnamed course')}
-      <span class="small">&nbsp;· ${totalStrokes(r)} strokes${tp.holes ? ` (${fmtToPar(tp.diff)})` : ''} · ${plural(r.shots.length, 'shot')}</span></button>`;
-    li.querySelector('button').addEventListener('click', () => {
-      if (!confirm(`Reopen the ${r.date} round to view or edit it?`)) return;
-      state.active_round_id = r.id;
-      persist();
-      render();
-    });
-    ol.appendChild(li);
-  }
-  $('exportAllCsvBtn').disabled = !state.rounds.length;
-  $('exportAllJsonBtn').disabled = !state.rounds.length;
-}
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
-function renderHoleTabs(round) {
-  const nav = $('holeTabs');
-  if (!nav.children.length) {
-    for (let n = 1; n <= HOLES; n++) {
-      const b = document.createElement('button');
-      b.className = 'hole-tab';
-      b.textContent = n;
-      b.dataset.hole = n;
-      b.addEventListener('click', () => goToHole(n));
-      nav.appendChild(b);
-    }
-  }
-  for (const b of nav.children) {
-    const n = Number(b.dataset.hole);
-    b.classList.toggle('current', n === round.current_hole);
-    b.classList.toggle('done', holeSummary(round, n).finished);
-  }
-  const cur = nav.children[round.current_hole - 1];
-  if (cur && cur.scrollIntoView) cur.scrollIntoView({ inline: 'center', block: 'nearest' });
-}
-
-// fit: whether the map should re-frame the hole (false while editing, so it doesn't jump)
-function renderRound(round, fit) {
-  const n = round.current_hole;
-  const sum = holeSummary(round, n);
-  const tp = scoreToPar(round);
-
-  $('courseName').textContent = round.course || 'Round';
-  $('roundDate').textContent = round.date;
-  $('scoreChip').textContent = tp.holes ? fmtToPar(tp.diff) : String(totalStrokes(round));
-
-  if (sum.par && sum.strokes) {
-    $('holeScore').textContent = toParWords(sum.strokes - sum.par);
-    $('holeScoreLabel').textContent = `HOLE ${n} · PAR ${sum.par}`;
-  } else {
-    $('holeScore').textContent = sum.strokes;
-    $('holeScoreLabel').textContent = `HOLE ${n} STROKES`;
-  }
-  $('puttCount').textContent = sum.putts;
-  $('finishHoleBtn').textContent = sum.finished ? `Hole ${n} done ✓` : 'Finish hole ›';
-  renderHoleTabs(round);
-
-  if (!mapReady) {
-    createMap('map');
-    mapReady = true;
-  }
-  refreshSize();
-  const h = round.holes[String(n)];
-  drawHole(shotsOnHole(round, n), h ? h.end : null, {
-    fmt: fmtYds,
-    putts: sum.putts,
-    onShotTap: openEditShot,
-    movingShotId,
-    onMoved: (lat, lon) => { pendingMove = { lat, lon }; },
-    fit,
-  });
-}
-
-function render(fit = true) {
-  const round = activeRound(state);
-  $('startScreen').hidden = !!round;
-  $('roundScreen').hidden = !round;
-  if (round) renderRound(round, fit);
-  else renderStart();
-}
-
-// ---- Startup ------------------------------------------------------------------------------------
-
-function init() {
-  fillSelect($('startHoleInput'), Array.from({ length: HOLES }, (_, i) => i + 1), 1);
-
-  $('startBtn').addEventListener('click', startRound);
-  $('nextShotBtn').addEventListener('click', () => { if (!busy) openClubSheet('shot'); });
-  $('puttPlusBtn').addEventListener('click', onPuttPlus);
-  $('puttMinusBtn').addEventListener('click', onPuttMinus);
-  $('finishHoleBtn').addEventListener('click', onFinishHole);
-  $('editBtn').addEventListener('click', () => { if (!busy) openEditSheet(); });
-  $('addShotBtn').addEventListener('click', startAddMissedShot);
-  $('scoreChip').addEventListener('click', openScorecard);
-  $('scoreBox').addEventListener('click', openScorecard);
-  $('sheetBackdrop').addEventListener('click', closeSheets);
-  document.querySelectorAll('.sheet-close').forEach((b) => b.addEventListener('click', closeSheets));
-
-  $('editSaveBtn').addEventListener('click', saveEditShot);
-  $('editCancelBtn').addEventListener('click', () => $('editShotDialog').close());
-  $('editDeleteBtn').addEventListener('click', deleteEditShot);
-  $('editMoveBtn').addEventListener('click', () => { $('editShotDialog').close(); startMoveShot(editingShotId); });
-
-  $('menuBtn').addEventListener('click', () => { updateWakeButton(); $('menuDialog').showModal(); });
-  $('wakeBtn').addEventListener('click', toggleWakeLock);
-  $('exportCsvBtn').addEventListener('click', () => exportRound(activeRound(state), 'csv'));
-  $('exportJsonBtn').addEventListener('click', () => exportRound(activeRound(state), 'json'));
-  $('endRoundBtn').addEventListener('click', () => { if (confirm('End this round?')) endRound(); });
-  $('bagBtn').addEventListener('click', openBag);
-  $('menuBagBtn').addEventListener('click', openBag);
-  $('bagSaveBtn').addEventListener('click', saveBag);
-  $('bagResetBtn').addEventListener('click', () => { $('bagText').value = DEFAULT_BAG.join('\n'); });
-  $('exportAllCsvBtn').addEventListener('click', () => exportAll('csv'));
-  $('exportAllJsonBtn').addEventListener('click', () => exportAll('json'));
-
-  // Ask the browser not to evict our data under storage pressure.
-  // iOS may ignore this, which is why export exists.
-  if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
-
-  // The service worker caches the app so it opens with weak or no signal.
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => { /* app still works online */ });
-  }
-
-  // Reopened mid-round: keep the screen on again from the next tap.
-  wantWakeLock = !!activeRound(state);
-
-  render();
-  // Reopened mid-round (e.g. after iOS closed the app): center on the player
-  // if the current hole has no shots yet to fit the map to.
-  const round = activeRound(state);
-  if (round && !shotsOnHole(round, round.current_hole).some((s) => s.lat != null)) locateOnce();
-}
-
-init();
+const ar = activeRound();
+if (ar) openRound(ar.id); else showHome('start');
