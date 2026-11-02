@@ -40,7 +40,7 @@ R = 6378137.0
 IMG_W, IMG_H = 768, 1280          # portrait, ~iPhone screen shape
 MIN_VIEW_H_M = 240                # never zoom in closer than this (short par 3s)
 PAD_GREEN_M = 30                  # space beyond the back of the green
-PAD_TEE_M = 22                    # space behind the tee
+PAD_TEE_M = 45                    # space behind the tee (room for messages and buttons)
 PAD_SIDE_M = 30                   # space beside the widest part of the hole
 TILE_Z = 18                       # ~0.5 m/px here; USGS NAIP photos are ~0.6 m
 

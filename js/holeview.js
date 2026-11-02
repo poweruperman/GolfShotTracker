@@ -249,7 +249,8 @@ export function createHoleView(root, handlers) {
   }
   stage.addEventListener('pointerup', end);
   stage.addEventListener('pointercancel', end);
-  window.addEventListener('resize', () => { if (meta) fit(); });
+  // Re-fit when the space changes (rotation, bars shown or hidden).
+  new ResizeObserver(() => { if (meta) fit(); }).observe(stage);
 
   return {
     // Show a hole. `src` is the image URL; `info` its image metadata.

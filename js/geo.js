@@ -111,6 +111,8 @@ export function greenDistances(from, green, center) {
     }
   }
   if (!Number.isFinite(front)) return { front: null, center: c, back: null };
+  // Standing on the green: there is no front edge ahead, only the back.
+  if (pointInPolygon(from, green)) return { front: 0, center: c, back };
   return { front, center: c, back };
 }
 
@@ -129,7 +131,7 @@ export function sideOffset(a, b, p) {
  * fix after the GPS wakes up is often the worst, so a few seconds of
  * listening gives better shot positions than a single reading.
  */
-export function sampleBestPosition(onUpdate = () => {}) {
+export function sampleBestPosition(onUpdate = () => {}, subscribe = null) {
   return new Promise((resolve, reject) => {
     if (!('geolocation' in navigator)) {
       reject(new Error('This browser has no GPS access.'));
@@ -141,27 +143,46 @@ export function sampleBestPosition(onUpdate = () => {}) {
     let done = false;
     let lastError = null;
     const started = Date.now();
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        count++;
-        if (!best || pos.coords.accuracy < best.coords.accuracy) best = pos;
-        onUpdate(best.coords.accuracy, count, Date.now() - started);
-        if (timeUp) finish();
-      },
-      (err) => {
-        lastError = err;
-        if (err.code === err.PERMISSION_DENIED) finish();
-      },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: MAX_WAIT_MS }
-    );
-    const softStop = setTimeout(() => { timeUp = true; if (best) finish(); }, SAMPLE_MS);
+    const onPos = (pos) => {
+      if (done) return;
+      count++;
+      if (!best || pos.coords.accuracy < best.coords.accuracy) best = pos;
+      onUpdate(best.coords.accuracy, count, Date.now() - started);
+      if (timeUp) finish();
+    };
+    const onErr = (err) => {
+      lastError = err;
+      if (err.code === err.PERMISSION_DENIED) finish();
+    };
+    // Share the app's running GPS feed when there is one: one GPS listener
+    // is easier on the battery and some browsers feed only the first one.
+    let unsubscribe = null;
+    let watchId = null;
+    // Also ask for one fresh reading right away: a feed may stay quiet while
+    // the phone isn't moving.
+    navigator.geolocation.getCurrentPosition(onPos, onErr,
+      { enableHighAccuracy: true, maximumAge: 0, timeout: MAX_WAIT_MS });
+    if (subscribe) unsubscribe = subscribe(onPos, onErr);
+    else {
+      watchId = navigator.geolocation.watchPosition(onPos, onErr,
+        { enableHighAccuracy: true, maximumAge: 0, timeout: MAX_WAIT_MS });
+    }
+    const softStop = setTimeout(() => {
+      timeUp = true;
+      // Standing still, a GPS feed may send nothing new. A reading from the
+      // last 15 s is still where the player is standing.
+      const latest = subscribe && subscribe.latest ? subscribe.latest() : null;
+      if (!best && latest && Date.now() - latest.timestamp < 15000) { best = latest; count = 1; }
+      if (best) finish();
+    }, SAMPLE_MS);
     const hardStop = setTimeout(finish, MAX_WAIT_MS);
     function finish() {
       if (done) return;
       done = true;
       clearTimeout(softStop);
       clearTimeout(hardStop);
-      navigator.geolocation.clearWatch(watchId);
+      if (unsubscribe) unsubscribe();
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
       if (best) {
         resolve({
           lat: best.coords.latitude,

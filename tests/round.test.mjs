@@ -68,6 +68,12 @@ test('front / center / back of the green from the tee', () => {
   assert.ok(Math.abs(g.back - (389.2 + 14.5)) < 0.5, `back ${g.back}`);
 });
 
+test('on the green, front is 0 and back is the far edge', () => {
+  const g = greenDistances(P(0.0034), HOLE.green, HOLE.green_center);
+  assert.equal(g.front, 0);
+  assert.ok(Math.abs(g.back - (0.00023 * 111194.93)) < 0.5, `back ${g.back}`);
+});
+
 test('side of the line and point in polygon', () => {
   assert.ok(sideOffset(HOLE.tee, HOLE.green_center, P(0.002, 0.001)) > 0, 'east of a northward line is right');
   assert.ok(sideOffset(HOLE.tee, HOLE.green_center, P(0.002, -0.001)) < 0);
@@ -182,4 +188,12 @@ test('CSV export has one row per shot', () => {
   const lines = shotsToCsv([r]).split('\n');
   assert.equal(lines.length, 3);
   assert.ok(lines[0].startsWith('round_id,date,course'));
+});
+
+test('a hole in progress does not count toward score vs par', () => {
+  const r = newRound({ course: COURSE });
+  shotAt(r, 'Dr', P(0));
+  assert.deepEqual(scoreToPar(r, () => 4), { diff: 0, holes: 0, strokes: 1 });
+  setPutts(r, 1, 2);
+  assert.deepEqual(scoreToPar(r, () => 4), { diff: -1, holes: 1, strokes: 3 });
 });

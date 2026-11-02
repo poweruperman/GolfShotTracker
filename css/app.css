@@ -151,9 +151,9 @@ button { cursor: pointer; }
 .green-panel .c strong { font-size: 28px; color: var(--green); }
 .hole-info { position: absolute; top: 10px; right: 10px; background: rgba(0, 0, 0, .7); border-radius: 10px;
   padding: 6px 10px; font-size: 14px; z-index: 5; }
-.edit-hint { position: absolute; left: 10px; right: 10px; bottom: 12px; background: rgba(0, 0, 0, .8);
+.edit-hint { position: absolute; left: 10px; right: 10px; top: 10px; background: rgba(0, 0, 0, .8);
   border-radius: 12px; padding: 10px 12px; font-size: 14px; text-align: center; z-index: 5; }
-.toast { position: absolute; left: 10px; right: 10px; top: 70px; background: rgba(10, 12, 13, .94);
+.toast { position: absolute; left: 10px; right: 84px; bottom: 14px; background: rgba(10, 12, 13, .94);
   border-radius: 14px; padding: 12px 14px; line-height: 1.4; z-index: 6; box-shadow: 0 4px 16px rgba(0, 0, 0, .5); }
 .toast.error { box-shadow: inset 4px 0 0 var(--bad), 0 4px 16px rgba(0, 0, 0, .5); }
 .toast .acc { font-size: 13px; color: var(--green); font-weight: 700; }

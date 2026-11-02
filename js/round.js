@@ -192,9 +192,16 @@ export function holeScore(round, n) {
   return { shots, putts, strokes: shots + putts };
 }
 
+// A hole counts as played once putted on, finished, or left for another hole.
+export function holeDone(round, n) {
+  const h = round.holes[String(n)];
+  if (h && (h.finished_at || h.putts > 0)) return true;
+  return n !== round.current_hole && holeScore(round, n).strokes > 0;
+}
+
 /*
- * Score vs par across holes that have both a score and a par.
- * parOf(n) returns the hole's par or null.
+ * Score vs par across played holes that have a par (a hole still in
+ * progress doesn't count yet). parOf(n) returns the hole's par or null.
  */
 export function scoreToPar(round, parOf) {
   let diff = 0;
@@ -205,7 +212,7 @@ export function scoreToPar(round, parOf) {
     if (!st) continue;
     strokes += st;
     const par = parOf(n);
-    if (par) { diff += st - par; holes++; }
+    if (par && holeDone(round, n)) { diff += st - par; holes++; }
   }
   return { diff, holes, strokes };
 }

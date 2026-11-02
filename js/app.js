@@ -20,7 +20,7 @@ import {
 import {
   DEFAULT_BAG, newRound, hole, shotsOnHole, addShot, findShot, editShot, deleteShot, moveShot,
   setShotPosition, insertShot, setHoleEnd, setPutts, finishHole, nextHoleNo, holeScore,
-  scoreToPar, fmtToPar, toParWords, analyzeHole, clubStats, shotsToCsv,
+  holeDone, scoreToPar, fmtToPar, toParWords, analyzeHole, clubStats, shotsToCsv,
 } from './round.js';
 import { load, save, parseBackup, saveFile } from './store.js';
 import {
@@ -383,7 +383,7 @@ function render() {
   if (r) {
     const sc = holeScore(r, n);
     const par = ch ? ch.par : null;
-    if (par && sc.strokes) {
+    if (par && sc.strokes && holeDone(r, n)) {
       $('holeScore').textContent = toParWords(sc.strokes - par);
       $('holeScoreLabel').textContent = 'SCORE';
     } else {
@@ -393,9 +393,11 @@ function render() {
     $('puttCount').textContent = sc.putts;
   }
 
-  // Edit bar
+  // Edit bar replaces the normal header while editing
   $('editBar').hidden = !editMode;
+  document.querySelector('.play-top').hidden = editMode;
   $('editHint').hidden = !editMode;
+  $('holeInfo').hidden = editMode;
   $('editTitle').textContent = `Edit Hole ${n}`;
   $('undoBtn').disabled = !undoStack.length;
 
@@ -474,18 +476,32 @@ function onMapTap(lat, lon) {
 
 // ---- Live GPS for the rangefinder (front/center/back) --------------------------------
 
+// One GPS feed for the whole play screen. Recording a shot listens to it
+// too (gpsListeners) instead of starting a second GPS watch.
+const gpsListeners = new Set();
+
 function startLiveGps() {
   if (watchId !== null || !('geolocation' in navigator)) return;
   watchId = navigator.geolocation.watchPosition(
     (p) => {
+      lastFix = p;
       me = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy };
       here = [me.lat, me.lon];
+      gpsListeners.forEach((l) => l.onPos(p));
       if (play && !busy) { renderGreenPanel(); drawOverlay(); }
     },
-    () => {},
-    { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 }
+    (err) => gpsListeners.forEach((l) => l.onErr(err)),
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
   );
 }
+
+let lastFix = null;
+function subscribeGps(onPos, onErr) {
+  const l = { onPos, onErr };
+  gpsListeners.add(l);
+  return () => gpsListeners.delete(l);
+}
+subscribeGps.latest = () => lastFix;
 
 function stopLiveGps() {
   if (watchId !== null) navigator.geolocation.clearWatch(watchId);
@@ -500,7 +516,7 @@ function toast(html, opts = {}) {
   $('toast').classList.toggle('error', !!opts.error);
   $('toast').hidden = false;
   $('toastBar').hidden = !opts.progress;
-  if (!opts.sticky) toastTimer = setTimeout(() => { $('toast').hidden = true; }, opts.ms || 6000);
+  if (!opts.sticky) toastTimer = setTimeout(() => { $('toast').hidden = true; }, opts.ms || 4500);
 }
 
 // ---- Recording shots -----------------------------------------------------------------------
@@ -550,7 +566,7 @@ async function takeReading(label) {
     const pos = await sampleBestPosition((acc, count, elapsed) => {
       $('toastFill').style.width = `${Math.min(100, (elapsed / SAMPLE_MS) * 100)}%`;
       $('toastText').innerHTML = `<strong>Hold still…</strong> ${label} · ±${acc.toFixed(0)} m`;
-    });
+    }, watchId !== null ? subscribeGps : null);
     return pos;
   } catch (e) {
     toast(geoErrorText(e), { error: true });
@@ -607,13 +623,19 @@ $('puttPlus').addEventListener('click', async () => {
   const h = hole(r, n);
   // The first putt also marks where the ball is on the green, which gives
   // the approach shot its distance. Only when standing there (live round).
+  let msg = '';
   if (isLive(r) && h.putts === 0 && !h.end && shotsOnHole(r, n).length) {
     const pos = await takeReading('marking your ball on the green');
-    if (pos) setHoleEnd(r, n, pos);
+    if (pos) {
+      setHoleEnd(r, n, pos);
+      const last = shotsOnHole(r, n).slice(-1)[0];
+      msg = `Ball marked on the green. ${esc(last.club)}: <strong>${last.distance_m == null ? 'no distance' : `${yds(last.distance_m)} yds`}</strong>`;
+    }
   }
   setPutts(r, n, h.putts + 1);
   persist();
   render();
+  if (msg) toast(msg);
 });
 
 $('puttMinus').addEventListener('click', () => {
@@ -634,6 +656,7 @@ function snapshot() {
 
 $('editBtn').addEventListener('click', () => {
   if (busy) return;
+  $('toast').hidden = true;
   editMode = true;
   undoStack = [];
   target = null;
