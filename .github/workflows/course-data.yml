@@ -1,0 +1,39 @@
+# Downloads course data and satellite imagery on GitHub's servers (they can
+# reach map services; the development environment can't) and commits the
+# results back to the same branch.
+name: course-data
+
+on:
+  push:
+    paths:
+      - "tools/**"
+      - ".github/workflows/course-data.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: course-data-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download OpenStreetMap course data
+        run: python tools/osm_fetch.py
+      - name: Commit results
+        run: |
+          git config user.name "course-data bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A data courses 2>/dev/null || true
+          if git diff --cached --quiet; then echo "nothing new"; exit 0; fi
+          git commit -m "Update course data from OpenStreetMap [automated]"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
