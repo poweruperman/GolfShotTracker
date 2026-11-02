@@ -502,6 +502,8 @@ def main():
             print(f"  {tiles.failed} tiles failed")
 
     if not only:
+        os.makedirs(os.path.join(ROOT, "courses"), exist_ok=True)
+        os.makedirs(os.path.join(ROOT, "data"), exist_ok=True)
         index.sort(key=lambda c: c["name"])
         with open(os.path.join(ROOT, "courses/index.json"), "w") as f:
             json.dump({"courses": index}, f, indent=1)
