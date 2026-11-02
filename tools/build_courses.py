@@ -220,6 +220,11 @@ def build_course(cfg, raw):
     # share a club house, e.g. North/South). Use the middle of the hole line.
     holes_raw = []
     for h in feats["hole"]:
+        # Properties with two courses tag each hole with its course's name.
+        if cfg.get("course_name"):
+            if h["tags"].get("golf:course:name") == cfg["course_name"]:
+                holes_raw.append(h)
+            continue
         mid = h["line"][len(h["line"]) // 2]
         if in_course(mid) and in_course(h["line"][0], 60) and in_course(h["line"][-1], 60):
             holes_raw.append(h)

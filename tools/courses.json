@@ -1,37 +1,515 @@
 {
-  "_about": "Courses the app knows. 'facilities' are downloaded from OpenStreetMap by their outline's id; 'courses' are what the app lists (one facility can hold two courses). Edit and push to rebuild.",
-  "search": [
-    {"name": "Crossing", "bbox": [32.5, -118.9, 34.6, -116.5]}
-  ],
-  "facilities": [
-    {"file": "dad-miller", "osm": ["way/133950735"]},
-    {"file": "hidden-valley", "osm": ["way/199674795"]},
-    {"file": "westridge", "osm": ["way/224018173"]},
-    {"file": "fullerton", "osm": ["way/161256808"]},
-    {"file": "la-mirada", "osm": ["way/133950721"]},
-    {"file": "los-serranos", "osm": ["way/41445610"]},
-    {"file": "industry-hills", "osm": ["way/221560406", "way/1257062334"]},
-    {"file": "glen-ivy", "osm": ["relation/13185713"]},
-    {"file": "eagle-glen", "osm": ["way/305806871"]},
-    {"file": "monarch-beach", "osm": ["relation/3568811"]},
-    {"file": "trump-la", "osm": ["way/817285041"]},
-    {"file": "don-knabe", "osm": ["way/296128369"]},
-    {"file": "navy", "osm": ["relation/3579049"]},
-    {"file": "iron-wood-nine", "osm": ["way/27768470"]},
-    {"file": "diamond-bar", "osm": ["way/100010941"]},
-    {"file": "el-dorado", "osm": ["relation/3568832"]},
-    {"file": "coyote-hills", "osm": ["way/191172910"]},
-    {"file": "brea-creek", "osm": ["way/161244789"]},
-    {"file": "birch-hills", "osm": ["way/831605089"]},
-    {"file": "rio-hondo", "osm": ["way/223766741"]},
-    {"file": "anaheim-hills", "osm": ["way/218011711"]},
-    {"file": "black-gold", "osm": ["way/210339919"]},
-    {"file": "riverview", "osm": ["way/162935416"]},
-    {"file": "el-prado", "osm": ["way/41443030"]},
-    {"file": "willowick", "osm": ["way/162935421"]},
-    {"file": "whispering-lakes", "osm": ["way/41442233"]},
-    {"file": "heartwell", "osm": ["way/27207607"]},
-    {"file": "oak-quarry", "osm": ["way/30885000"]}
-  ],
-  "courses": []
+ "_about": "Courses the app knows. 'facilities' are downloaded from OpenStreetMap by their outline's id; 'courses' are what the app lists (one facility can hold two courses). Edit and push to rebuild.",
+ "facilities": [
+  {
+   "file": "dad-miller",
+   "osm": [
+    "way/133950735"
+   ]
+  },
+  {
+   "file": "hidden-valley",
+   "osm": [
+    "way/199674795"
+   ]
+  },
+  {
+   "file": "westridge",
+   "osm": [
+    "way/224018173"
+   ]
+  },
+  {
+   "file": "fullerton",
+   "osm": [
+    "way/161256808"
+   ]
+  },
+  {
+   "file": "la-mirada",
+   "osm": [
+    "way/133950721"
+   ]
+  },
+  {
+   "file": "los-serranos",
+   "osm": [
+    "way/41445610"
+   ]
+  },
+  {
+   "file": "industry-hills",
+   "osm": [
+    "way/221560406",
+    "way/1257062334"
+   ]
+  },
+  {
+   "file": "glen-ivy",
+   "osm": [
+    "relation/13185713"
+   ]
+  },
+  {
+   "file": "eagle-glen",
+   "osm": [
+    "way/305806871"
+   ]
+  },
+  {
+   "file": "monarch-beach",
+   "osm": [
+    "relation/3568811"
+   ]
+  },
+  {
+   "file": "trump-la",
+   "osm": [
+    "way/817285041"
+   ]
+  },
+  {
+   "file": "don-knabe",
+   "osm": [
+    "way/296128369"
+   ]
+  },
+  {
+   "file": "navy",
+   "osm": [
+    "relation/3579049"
+   ]
+  },
+  {
+   "file": "iron-wood-nine",
+   "osm": [
+    "way/27768470"
+   ]
+  },
+  {
+   "file": "diamond-bar",
+   "osm": [
+    "way/100010941"
+   ]
+  },
+  {
+   "file": "el-dorado",
+   "osm": [
+    "relation/3568832"
+   ]
+  },
+  {
+   "file": "coyote-hills",
+   "osm": [
+    "way/191172910"
+   ]
+  },
+  {
+   "file": "brea-creek",
+   "osm": [
+    "way/161244789"
+   ]
+  },
+  {
+   "file": "birch-hills",
+   "osm": [
+    "way/831605089"
+   ]
+  },
+  {
+   "file": "rio-hondo",
+   "osm": [
+    "way/223766741"
+   ]
+  },
+  {
+   "file": "anaheim-hills",
+   "osm": [
+    "way/218011711"
+   ]
+  },
+  {
+   "file": "black-gold",
+   "osm": [
+    "way/210339919"
+   ]
+  },
+  {
+   "file": "riverview",
+   "osm": [
+    "way/162935416"
+   ]
+  },
+  {
+   "file": "el-prado",
+   "osm": [
+    "way/41443030"
+   ]
+  },
+  {
+   "file": "willowick",
+   "osm": [
+    "way/162935421"
+   ]
+  },
+  {
+   "file": "whispering-lakes",
+   "osm": [
+    "way/41442233"
+   ]
+  },
+  {
+   "file": "heartwell",
+   "osm": [
+    "way/27207607"
+   ]
+  },
+  {
+   "file": "oak-quarry",
+   "osm": [
+    "way/30885000"
+   ]
+  },
+  {
+   "file": "crossings-carlsbad",
+   "osm": [
+    "way/83332241"
+   ]
+  }
+ ],
+ "courses": [
+  {
+   "id": "dad-miller",
+   "name": "Dad Miller Golf Course",
+   "city": "Anaheim",
+   "osm_file": "dad-miller",
+   "osm": [
+    "way/133950735"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "hidden-valley",
+   "name": "Hidden Valley Golf Club",
+   "city": "Norco",
+   "osm_file": "hidden-valley",
+   "osm": [
+    "way/199674795"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "westridge",
+   "name": "Westridge Golf Club",
+   "city": "La Habra",
+   "osm_file": "westridge",
+   "osm": [
+    "way/224018173"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "fullerton",
+   "name": "Fullerton Golf Course",
+   "city": "Fullerton",
+   "osm_file": "fullerton",
+   "osm": [
+    "way/161256808"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "la-mirada",
+   "name": "La Mirada Golf Course",
+   "city": "La Mirada",
+   "osm_file": "la-mirada",
+   "osm": [
+    "way/133950721"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "los-serranos-north",
+   "name": "Los Serranos \u2013 North Course",
+   "city": "Chino Hills",
+   "osm_file": "los-serranos",
+   "osm": [
+    "way/41445610"
+   ],
+   "holes": 18,
+   "course_name": "North Course"
+  },
+  {
+   "id": "los-serranos-south",
+   "name": "Los Serranos \u2013 South Course",
+   "city": "Chino Hills",
+   "osm_file": "los-serranos",
+   "osm": [
+    "way/41445610"
+   ],
+   "holes": 18,
+   "course_name": "South Course"
+  },
+  {
+   "id": "industry-hills-ike",
+   "name": "Industry Hills \u2013 Ike Course",
+   "city": "City of Industry",
+   "osm_file": "industry-hills",
+   "osm": [
+    "way/221560406",
+    "way/1257062334"
+   ],
+   "holes": 18,
+   "course_name": "Ike"
+  },
+  {
+   "id": "industry-hills-babe",
+   "name": "Industry Hills \u2013 Babe Zaharias Course",
+   "city": "City of Industry",
+   "osm_file": "industry-hills",
+   "osm": [
+    "way/221560406",
+    "way/1257062334"
+   ],
+   "holes": 18,
+   "course_name": "Babe"
+  },
+  {
+   "id": "glen-ivy",
+   "name": "Trilogy Golf Club at Glen Ivy",
+   "city": "Corona",
+   "osm_file": "glen-ivy",
+   "osm": [
+    "relation/13185713"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "eagle-glen",
+   "name": "Eagle Glen Golf Club",
+   "city": "Corona",
+   "osm_file": "eagle-glen",
+   "osm": [
+    "way/305806871"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "crossings-carlsbad",
+   "name": "The Crossings at Carlsbad",
+   "city": "Carlsbad",
+   "osm_file": "crossings-carlsbad",
+   "osm": [
+    "way/83332241"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "monarch-beach",
+   "name": "Monarch Beach Golf Links",
+   "city": "Dana Point",
+   "osm_file": "monarch-beach",
+   "osm": [
+    "relation/3568811"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "trump-la",
+   "name": "Trump National Golf Club Los Angeles",
+   "city": "Rancho Palos Verdes",
+   "osm_file": "trump-la",
+   "osm": [
+    "way/817285041"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "navy-destroyer",
+   "name": "Navy Golf Course \u2013 Destroyer",
+   "city": "Seal Beach",
+   "osm_file": "navy",
+   "osm": [
+    "relation/3579049"
+   ],
+   "holes": 18,
+   "course_name": "Destroyer"
+  },
+  {
+   "id": "navy-cruiser",
+   "name": "Navy Golf Course \u2013 Cruiser",
+   "city": "Seal Beach",
+   "osm_file": "navy",
+   "osm": [
+    "relation/3579049"
+   ],
+   "holes": 9,
+   "course_name": "Cruiser"
+  },
+  {
+   "id": "iron-wood-nine",
+   "name": "Cerritos Iron-Wood Nine",
+   "city": "Cerritos",
+   "osm_file": "iron-wood-nine",
+   "osm": [
+    "way/27768470"
+   ],
+   "holes": 9
+  },
+  {
+   "id": "diamond-bar",
+   "name": "Diamond Bar Golf Course",
+   "city": "Diamond Bar",
+   "osm_file": "diamond-bar",
+   "osm": [
+    "way/100010941"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "el-dorado",
+   "name": "El Dorado Park Golf Course",
+   "city": "Long Beach",
+   "osm_file": "el-dorado",
+   "osm": [
+    "relation/3568832"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "coyote-hills",
+   "name": "Coyote Hills Golf Course",
+   "city": "Fullerton",
+   "osm_file": "coyote-hills",
+   "osm": [
+    "way/191172910"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "brea-creek",
+   "name": "Brea Creek Golf Course",
+   "city": "Brea",
+   "osm_file": "brea-creek",
+   "osm": [
+    "way/161244789"
+   ],
+   "holes": 9
+  },
+  {
+   "id": "birch-hills",
+   "name": "Birch Hills Golf Course",
+   "city": "Brea",
+   "osm_file": "birch-hills",
+   "osm": [
+    "way/831605089"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "rio-hondo",
+   "name": "Rio Hondo Golf Club",
+   "city": "Downey",
+   "osm_file": "rio-hondo",
+   "osm": [
+    "way/223766741"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "anaheim-hills",
+   "name": "Anaheim Hills Golf Course",
+   "city": "Anaheim",
+   "osm_file": "anaheim-hills",
+   "osm": [
+    "way/218011711"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "black-gold",
+   "name": "Black Gold Golf Club",
+   "city": "Yorba Linda",
+   "osm_file": "black-gold",
+   "osm": [
+    "way/210339919"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "riverview",
+   "name": "River View Golf Course",
+   "city": "Santa Ana",
+   "osm_file": "riverview",
+   "osm": [
+    "way/162935416"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "el-prado-chino-creek",
+   "name": "El Prado \u2013 Chino Creek Course",
+   "city": "Chino",
+   "osm_file": "el-prado",
+   "osm": [
+    "way/41443030"
+   ],
+   "holes": 18,
+   "course_name": "Chino Creek"
+  },
+  {
+   "id": "el-prado-butterfield",
+   "name": "El Prado \u2013 Butterfield Stage Course",
+   "city": "Chino",
+   "osm_file": "el-prado",
+   "osm": [
+    "way/41443030"
+   ],
+   "holes": 18,
+   "course_name": "Butterfield Stage"
+  },
+  {
+   "id": "willowick",
+   "name": "Willowick Golf Course",
+   "city": "Santa Ana",
+   "osm_file": "willowick",
+   "osm": [
+    "way/162935421"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "whispering-lakes",
+   "name": "Whispering Lakes Golf Course",
+   "city": "Ontario",
+   "osm_file": "whispering-lakes",
+   "osm": [
+    "way/41442233"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "heartwell",
+   "name": "Heartwell Golf Course",
+   "city": "Long Beach",
+   "osm_file": "heartwell",
+   "osm": [
+    "way/27207607"
+   ],
+   "holes": 18
+  },
+  {
+   "id": "oak-quarry",
+   "name": "Oak Quarry Golf Club",
+   "city": "Jurupa Valley",
+   "osm_file": "oak-quarry",
+   "osm": [
+    "way/30885000"
+   ],
+   "holes": 18
+  }
+ ],
+ "_skipped": {
+  "don-knabe": "Mapped in OpenStreetMap only as a driving range (no holes)."
+ }
 }

@@ -111,7 +111,7 @@ def step_courses():
  nwr["natural"="water"](area.a);
  nwr["leisure"="golf_course"](area.a);
  .c;);
-out tags geom;"""
+out geom;"""
         try:
             res = overpass(q)
         except RuntimeError as e:  # skip this one; the rest still download
