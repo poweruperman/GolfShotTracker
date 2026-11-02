@@ -28,6 +28,8 @@ jobs:
           python-version: "3.12"
       - name: Download OpenStreetMap course data
         run: python tools/osm_fetch.py
+        timeout-minutes: 30
+        continue-on-error: true
       - name: Build course files and render hole images
         run: |
           if [ -f tools/courses.json ]; then

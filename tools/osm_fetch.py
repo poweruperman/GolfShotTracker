@@ -31,19 +31,22 @@ REGION = (33.35, -118.50, 34.25, -117.25)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def overpass(query):
+def overpass(query, attempts=4):
     data = urllib.parse.urlencode({"data": query}).encode()
     last = None
-    for attempt in range(6):
+    for attempt in range(attempts):
         url = ENDPOINTS[attempt % len(ENDPOINTS)]
+        t0 = time.time()
         try:
             req = urllib.request.Request(url, data=data, headers={"User-Agent": UA})
-            with urllib.request.urlopen(req, timeout=240) as r:
-                return json.loads(r.read().decode("utf-8"))
+            with urllib.request.urlopen(req, timeout=100) as r:
+                res = json.loads(r.read().decode("utf-8"))
+            print(f"  ok via {url} in {time.time() - t0:.0f}s", flush=True)
+            return res
         except Exception as e:  # rate limit, timeout, server busy: try the next server
             last = e
-            print(f"  overpass attempt {attempt + 1} via {url} failed: {e}", flush=True)
-            time.sleep(10 * (attempt + 1))
+            print(f"  attempt {attempt + 1} via {url} failed after {time.time() - t0:.0f}s: {e}", flush=True)
+            time.sleep(8 * (attempt + 1))
     raise RuntimeError(f"Overpass failed: {last}")
 
 
@@ -100,7 +103,7 @@ def step_courses():
         if rels:
             sel += f"relation(id:{','.join(rels)});"
         print(f"courses: {fac['file']}", flush=True)
-        q = f"""[out:json][timeout:180];
+        q = f"""[out:json][timeout:90];
 ({sel})->.c;
 .c map_to_area->.a;
 (nwr["golf"](area.a);
@@ -109,10 +112,14 @@ def step_courses():
  nwr["leisure"="golf_course"](area.a);
  .c;);
 out tags geom;"""
-        res = overpass(q)
+        try:
+            res = overpass(q)
+        except RuntimeError as e:  # skip this one; the rest still download
+            print(f"  SKIPPED {fac['file']}: {e}", flush=True)
+            continue
         write_json(out, {"source": "OpenStreetMap contributors (ODbL)", "file": fac["file"],
                          "osm": fac["osm"], "elements": res["elements"]})
-        time.sleep(5)  # be polite to the free Overpass servers
+        time.sleep(3)  # be polite to the free Overpass servers
 
 
 def step_search():
@@ -127,11 +134,17 @@ def step_search():
     found = []
     for srch in cfg["search"]:
         s, w, n, e = srch["bbox"]
-        q = f"""[out:json][timeout:120];
-(way["leisure"="golf_course"]["name"~"{srch['name']}",i]({s},{w},{n},{e});
- relation["leisure"="golf_course"]["name"~"{srch['name']}",i]({s},{w},{n},{e}););
+        q = f"""[out:json][timeout:60];
+(way["leisure"="golf_course"]({s},{w},{n},{e});
+ relation["leisure"="golf_course"]({s},{w},{n},{e}););
 out tags center;"""
-        res = overpass(q)
+        try:
+            res = overpass(q, attempts=2)
+        except RuntimeError as e:
+            print(f"  search skipped: {e}", flush=True)
+            continue
+        res["elements"] = [el for el in res["elements"]
+                           if srch["name"].lower() in el.get("tags", {}).get("name", "").lower()]
         for el in res["elements"]:
             c = el.get("center", {})
             found.append({"query": srch["name"], "osm": f"{el['type']}/{el['id']}",
@@ -141,6 +154,6 @@ out tags center;"""
 
 
 if __name__ == "__main__":
-    steps = sys.argv[1:] or ["region", "search", "courses"]
+    steps = sys.argv[1:] or ["region", "courses", "search"]
     for st in steps:
         {"region": step_region, "search": step_search, "courses": step_courses}[st]()
