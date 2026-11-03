@@ -203,24 +203,22 @@ Update the Status column when a phase changes state.
 
 ### Open items
 
-- **Imagery provider:** the live map uses **USGS The National Map,
-  `USGSImageryOnly`** (checked 2026-09-25: USGS data is US public domain,
-  free to use with USGS credited; US coverage only; mostly ~0.6–1 m NAIP
-  photos). No account or key. Tiles aren't cached by the service worker yet.
-  The maximum zoom requested (`IMAGERY_MAX_NATIVE_ZOOM` in `js/map.js`) could
-  not be verified from the dev environment; confirm in the field. Revisit if
-  the resolution is too coarse for Phase 3 hole images.
+- **Imagery provider:** hole images come from the **USGS NAIP image service**
+  (`USGSNAIPPlus/ImageServer/exportImage`; USDA NAIP aerial photos, public
+  domain, 0.3 m/pixel, checked 2026-11-03 with `tools/probe_imagery.py`).
+  The USGS tile cache (`USGSImageryOnly`) only serves up to zoom 16
+  (~2 m/pixel) and is the fallback. Credit: USDA NAIP via USGS.
 - **Cloud database:** confirm Supabase free-tier limits still fit (row count,
   pause-after-inactivity rules) before Phase 2.
 - **Arccos baseline:** David must capture club averages and any round data he
   wants to keep before the subscription ends (screenshots are the only export).
-- **Course hole images:** David's separate course-images project is
-  producing tee-at-bottom hole images. A prompt was sent asking it for the
-  four corner coordinates, rotation, projection, hole data (par, tee, green
-  front/center/back, outlines) and imagery rights, exported as
-  `courses/<course-id>/course.json` + `hole-NN.jpg`. When it arrives: show the
-  hole image instead of the satellite map, with shots placed via the corner
-  coordinates; fill par automatically; auto-mark fairway/GIR from outlines.
+- **Course coverage (2026-11-03):** 31 courses have every hole with an
+  image, par, green outline and (nearly all) fairways; see
+  `data/coverage.md`. Gaps: **Diamond Bar** (greens/tees mapped but no hole
+  lines in OSM; scorable only), **Don Knabe** (mapped only as a driving
+  range; not listed). Fix either by mapping in OSM and re-running the
+  workflow. David's separate course-images project was superseded by this
+  pipeline.
 - **Pin position:** decide later whether to track distance to the pin (needs a
   green position per day) or only shot-to-shot distance.
 - **iOS location prompt:** home-screen web apps may re-ask for location
