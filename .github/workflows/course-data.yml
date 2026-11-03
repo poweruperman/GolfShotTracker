@@ -39,6 +39,12 @@ jobs:
           git pull --rebase origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"
           SH
+      - name: Install Pillow
+        run: pip install --quiet pillow==11.0.0
+      - name: Check imagery sources
+        run: python tools/probe_imagery.py
+        timeout-minutes: 5
+        continue-on-error: true
       - name: Download OpenStreetMap course data
         run: python tools/osm_fetch.py
         timeout-minutes: 90
@@ -47,9 +53,7 @@ jobs:
         if: always()
         run: bash /tmp/save.sh "Update OpenStreetMap course data [automated]"
       - name: Build course files and render hole images
-        run: |
-          pip install --quiet pillow==11.0.0
-          python tools/build_courses.py
+        run: python tools/build_courses.py
         timeout-minutes: 120
       - name: Save course files and images
         if: always()
