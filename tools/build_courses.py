@@ -34,6 +34,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UA = "GolfShotTracker/1.0 (personal golf app; github.com/poweruperman/GolfShotTracker)"
+# Main imagery: USDA NAIP aerial photos served by USGS (public domain). The
+# image service returns exactly the box we ask for at up to 0.3 m/pixel.
+# (Checked 2026-11-03 with tools/probe_imagery.py: works from GitHub runners.)
+NAIP_URL = "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/exportImage"
+NAIP_M_PER_PX = 0.3
+# Fallback: the USGS tile cache. It only goes to zoom 16 (~2 m/pixel), so
+# holes drawn from it are blurry; used only if the NAIP service fails.
 TILE_URL = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}"
 EARTH_CIRC = 40075016.686  # meters at the equator (Web Mercator sphere)
 R = 6378137.0
@@ -43,7 +50,8 @@ MIN_VIEW_H_M = 240                # never zoom in closer than this (short par 3s
 PAD_GREEN_M = 30                  # space beyond the back of the green
 PAD_TEE_M = 45                    # space behind the tee (room for messages and buttons)
 PAD_SIDE_M = 30                   # space beside the widest part of the hole
-TILE_Z = 18                       # ~0.5 m/px here; USGS NAIP photos are ~0.6 m
+TILE_Z = 16                       # highest zoom the USGS tile cache has
+XFORM_Z = 18                      # zoom whose Mercator pixels the app's transform uses
 
 
 # ---------------------------------------------------------------- geometry
@@ -404,12 +412,52 @@ class TileCache:
         return None
 
 
-def render_hole(loc, h, tiles, out_path):
+def merc_m(lat, lon):
+    """Web Mercator meters (EPSG:3857)."""
+    x = math.radians(lon) * R
+    y = math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)) * R
+    return x, y
+
+
+def naip_mosaic(corners_ll, m_per_px):
+    """Fetch the NAIP photo covering the corners. Returns (image, point->pixel) or None."""
     from PIL import Image
-    fr = hole_frame(h)
+    pts = [merc_m(lat, lon) for lat, lon in corners_ll]
+    minx, maxx = min(p[0] for p in pts), max(p[0] for p in pts)
+    miny, maxy = min(p[1] for p in pts), max(p[1] for p in pts)
+    lat0 = sum(c[0] for c in corners_ll) / len(corners_ll)
+    res = max(NAIP_M_PER_PX, m_per_px * 0.9) / math.cos(math.radians(lat0))  # Mercator m per px
+    w = int(math.ceil((maxx - minx) / res))
+    hgt = int(math.ceil((maxy - miny) / res))
+    scale = max(w, hgt) / 4000
+    if scale > 1:  # the service caps image size
+        w, hgt = int(w / scale), int(hgt / scale)
+    url = (f"{NAIP_URL}?bbox={minx},{miny},{maxx},{maxy}&bboxSR=3857&imageSR=3857"
+           f"&size={w},{hgt}&format=jpg&interpolation=RSP_BilinearInterpolation&f=image")
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=90) as r:
+                body = r.read()
+                if not r.headers.get("Content-Type", "").startswith("image"):
+                    raise RuntimeError(body[:200])
+            img = Image.open(io.BytesIO(body)).convert("RGB")
+            W, H = img.size
+
+            def to_px(lat, lon):
+                x, y = merc_m(lat, lon)
+                return ((x - minx) / (maxx - minx) * W, (maxy - y) / (maxy - miny) * H)
+            return img, to_px
+        except Exception as e:
+            print(f"    NAIP attempt {attempt + 1} failed: {e}", flush=True)
+            time.sleep(3 * (attempt + 1))
+    return None
+
+
+def tile_mosaic(corners_ll, tiles, n):
+    """Fallback: stitch USGS cache tiles. Returns (image, point->pixel) or None."""
+    from PIL import Image
     z = TILE_Z
-    corners_px = [(0, 0), (IMG_W, 0), (IMG_W, IMG_H), (0, IMG_H)]
-    corners_ll = [loc.ll(*frame_to_local(fr, u, v)) for u, v in corners_px]
     merc = [merc_px(lat, lon, z) for lat, lon in corners_ll]
     tx0 = int(min(m[0] for m in merc) // 256)
     tx1 = int(max(m[0] for m in merc) // 256)
@@ -421,17 +469,39 @@ def render_hole(loc, h, tiles, out_path):
     # Never save a hole image that is mostly missing photo.
     missing = sum(1 for t in got if t is None)
     if missing > len(keys) * 0.1:
-        print(f"    hole {h['n']}: {missing}/{len(keys)} tiles missing; no image", flush=True)
+        print(f"    hole {n}: {missing}/{len(keys)} tiles missing; no image", flush=True)
         return None
     mosaic = Image.new("RGB", ((tx1 - tx0 + 1) * 256, (ty1 - ty0 + 1) * 256), (40, 48, 40))
     for (_, x, y), t in zip(keys, got):
         if t is not None:
             mosaic.paste(t, ((x - tx0) * 256, (y - ty0) * 256))
 
+    def to_px(lat, lon):
+        X, Y = merc_px(lat, lon, z)
+        return (X - tx0 * 256, Y - ty0 * 256)
+    return mosaic, to_px
+
+
+def render_hole(loc, h, tiles, out_path):
+    from PIL import Image
+    fr = hole_frame(h)
+    z = XFORM_Z
+    corners_px = [(0, 0), (IMG_W, 0), (IMG_W, IMG_H), (0, IMG_H)]
+    corners_ll = [loc.ll(*frame_to_local(fr, u, v)) for u, v in corners_px]
+    merc = [merc_px(lat, lon, z) for lat, lon in corners_ll]
+    src_name = "NAIP"
+    got = naip_mosaic(corners_ll, fr["H"] / IMG_H)
+    if got is None:
+        src_name = "tiles"
+        got = tile_mosaic(corners_ll, tiles, h["n"])
+    if got is None:
+        return None
+    mosaic, to_px = got
+
     # Image pixel -> Mercator pixel (affine, from 3 corners); PIL wants the
     # mapping from output pixel to input (mosaic) pixel.
     src = corners_px[:3]
-    dst = [(m[0] - tx0 * 256, m[1] - ty0 * 256) for m in merc[:3]]
+    dst = [to_px(lat, lon) for lat, lon in corners_ll[:3]]
     inv = affine_from_points(src, dst)
     img = mosaic.transform((IMG_W, IMG_H), Image.AFFINE, data=inv, resample=Image.BICUBIC)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -444,6 +514,7 @@ def render_hole(loc, h, tiles, out_path):
         "corners": [[round(a, 7), round(b, 7)] for a, b in corners_ll],
         "bearing_deg": round(fr["bearing_deg"], 1),
         "m_per_px": round(fr["H"] / IMG_H, 4),
+        "source": src_name,
     }
 
 
@@ -523,7 +594,7 @@ def main():
             "holes_expected": cov["holes_expected"],
             "center": [round(loc.lat0, 6), round(loc.lon0, 6)],
             "holes": out,
-            "attribution": "Course data © OpenStreetMap contributors (ODbL). Imagery: USGS The National Map.",
+            "attribution": "Course data © OpenStreetMap contributors (ODbL). Imagery: USDA NAIP via USGS The National Map.",
         }
         os.makedirs(cdir, exist_ok=True)
         with open(os.path.join(cdir, "course.json"), "w") as f:
