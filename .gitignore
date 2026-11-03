@@ -7,3 +7,10 @@
 
 # macOS folder metadata
 .DS_Store
+
+# Exception: course data (hole corner coordinates, par) is public map data,
+# not personal, and the app needs it.
+!courses/**/*.json
+# Map data downloaded by tools/ (public OpenStreetMap data, not personal)
+!data/**/*.json
+!tools/*.json

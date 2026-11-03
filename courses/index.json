@@ -1,0 +1,388 @@
+{
+ "courses": [
+  {
+   "id": "anaheim-hills",
+   "name": "Anaheim Hills Golf Course",
+   "city": "Anaheim",
+   "center": [
+    33.841769,
+    -117.765576
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 71
+  },
+  {
+   "id": "birch-hills",
+   "name": "Birch Hills Golf Course",
+   "city": "Brea",
+   "center": [
+    33.915428,
+    -117.868261
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 59
+  },
+  {
+   "id": "black-gold",
+   "name": "Black Gold Golf Club",
+   "city": "Yorba Linda",
+   "center": [
+    33.907458,
+    -117.818056
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 72
+  },
+  {
+   "id": "brea-creek",
+   "name": "Brea Creek Golf Course",
+   "city": "Brea",
+   "center": [
+    33.910633,
+    -117.911164
+   ],
+   "holes": 9,
+   "holes_expected": 9,
+   "par": 29
+  },
+  {
+   "id": "iron-wood-nine",
+   "name": "Cerritos Iron-Wood Nine",
+   "city": "Cerritos",
+   "center": [
+    33.879709,
+    -118.106018
+   ],
+   "holes": 9,
+   "holes_expected": 9,
+   "par": 29
+  },
+  {
+   "id": "coyote-hills",
+   "name": "Coyote Hills Golf Course",
+   "city": "Fullerton",
+   "center": [
+    33.895001,
+    -117.901935
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 70
+  },
+  {
+   "id": "dad-miller",
+   "name": "Dad Miller Golf Course",
+   "city": "Anaheim",
+   "center": [
+    33.836503,
+    -117.968074
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 71
+  },
+  {
+   "id": "diamond-bar",
+   "name": "Diamond Bar Golf Course",
+   "city": "Diamond Bar",
+   "center": [
+    34.009638,
+    -117.820567
+   ],
+   "holes": 0,
+   "holes_expected": 18,
+   "par": null
+  },
+  {
+   "id": "eagle-glen",
+   "name": "Eagle Glen Golf Club",
+   "city": "Corona",
+   "center": [
+    33.804998,
+    -117.540473
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 72
+  },
+  {
+   "id": "el-dorado",
+   "name": "El Dorado Park Golf Course",
+   "city": "Long Beach",
+   "center": [
+    33.802239,
+    -118.094935
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 72
+  },
+  {
+   "id": "el-prado-butterfield",
+   "name": "El Prado \u2013 Butterfield Stage Course",
+   "city": "Chino",
+   "center": [
+    33.948164,
+    -117.662744
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 72
+  },
+  {
+   "id": "el-prado-chino-creek",
+   "name": "El Prado \u2013 Chino Creek Course",
+   "city": "Chino",
+   "center": [
+    33.948164,
+    -117.662744
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 72
+  },
+  {
+   "id": "fullerton",
+   "name": "Fullerton Golf Course",
+   "city": "Fullerton",
+   "center": [
+    33.903227,
+    -117.921632
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 68
+  },
+  {
+   "id": "heartwell",
+   "name": "Heartwell Golf Course",
+   "city": "Long Beach",
+   "center": [
+    33.830873,
+    -118.103731
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 54
+  },
+  {
+   "id": "hidden-valley",
+   "name": "Hidden Valley Golf Club",
+   "city": "Norco",
+   "center": [
+    33.915856,
+    -117.519253
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 72
+  },
+  {
+   "id": "industry-hills-babe",
+   "name": "Industry Hills \u2013 Babe Zaharias Course",
+   "city": "City of Industry",
+   "center": [
+    34.022507,
+    -117.928356
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 71
+  },
+  {
+   "id": "industry-hills-ike",
+   "name": "Industry Hills \u2013 Ike Course",
+   "city": "City of Industry",
+   "center": [
+    34.022507,
+    -117.928356
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 72
+  },
+  {
+   "id": "la-mirada",
+   "name": "La Mirada Golf Course",
+   "city": "La Mirada",
+   "center": [
+    33.905944,
+    -118.001196
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 74
+  },
+  {
+   "id": "los-serranos-north",
+   "name": "Los Serranos \u2013 North Course",
+   "city": "Chino Hills",
+   "center": [
+    33.965936,
+    -117.708065
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 72
+  },
+  {
+   "id": "los-serranos-south",
+   "name": "Los Serranos \u2013 South Course",
+   "city": "Chino Hills",
+   "center": [
+    33.965936,
+    -117.708065
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 74
+  },
+  {
+   "id": "monarch-beach",
+   "name": "Monarch Beach Golf Links",
+   "city": "Dana Point",
+   "center": [
+    33.483568,
+    -117.716553
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 70
+  },
+  {
+   "id": "navy-cruiser",
+   "name": "Navy Golf Course \u2013 Cruiser",
+   "city": "Seal Beach",
+   "center": [
+    33.793604,
+    -118.040238
+   ],
+   "holes": 9,
+   "holes_expected": 9,
+   "par": 31
+  },
+  {
+   "id": "navy-destroyer",
+   "name": "Navy Golf Course \u2013 Destroyer",
+   "city": "Seal Beach",
+   "center": [
+    33.793604,
+    -118.040238
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 72
+  },
+  {
+   "id": "oak-quarry",
+   "name": "Oak Quarry Golf Club",
+   "city": "Jurupa Valley",
+   "center": [
+    34.025099,
+    -117.43312
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 72
+  },
+  {
+   "id": "rio-hondo",
+   "name": "Rio Hondo Golf Club",
+   "city": "Downey",
+   "center": [
+    33.955062,
+    -118.149847
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 70
+  },
+  {
+   "id": "riverview",
+   "name": "River View Golf Course",
+   "city": "Santa Ana",
+   "center": [
+    33.770196,
+    -117.891674
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 70
+  },
+  {
+   "id": "crossings-carlsbad",
+   "name": "The Crossings at Carlsbad",
+   "city": "Carlsbad",
+   "center": [
+    33.129718,
+    -117.301572
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 72
+  },
+  {
+   "id": "glen-ivy",
+   "name": "Trilogy Golf Club at Glen Ivy",
+   "city": "Corona",
+   "center": [
+    33.76614,
+    -117.499657
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 72
+  },
+  {
+   "id": "trump-la",
+   "name": "Trump National Golf Club Los Angeles",
+   "city": "Rancho Palos Verdes",
+   "center": [
+    33.729659,
+    -118.346587
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 71
+  },
+  {
+   "id": "westridge",
+   "name": "Westridge Golf Club",
+   "city": "La Habra",
+   "center": [
+    33.910814,
+    -117.96778
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 72
+  },
+  {
+   "id": "whispering-lakes",
+   "name": "Whispering Lakes Golf Course",
+   "city": "Ontario",
+   "center": [
+    34.028912,
+    -117.603411
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 71
+  },
+  {
+   "id": "willowick",
+   "name": "Willowick Golf Course",
+   "city": "Santa Ana",
+   "center": [
+    33.751772,
+    -117.913651
+   ],
+   "holes": 18,
+   "holes_expected": 18,
+   "par": 71
+  }
+ ]
+}

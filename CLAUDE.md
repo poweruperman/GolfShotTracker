@@ -139,6 +139,8 @@ courses: id, name, osm_id, center_lat, center_lon, image_status
   rounds, CSV/JSON exports, database keys or other secrets. Use dummy data
   (made-up coordinates) in examples, tests and demos.
 - Keep `*.csv`, `*.json` exports and any `.env` files in `.gitignore`.
+  Exceptions: `courses/**/*.json`, `data/**/*.json`, `tools/*.json` hold
+  public map data, not personal data.
 - Supabase: only the public "anon" key may appear in client code, and only
   with Row Level Security enabled. Never commit the service-role key.
 
@@ -149,10 +151,10 @@ courses: id, name, osm_id, center_lat, center_lon, image_status
 | 0. GPS spike | Single-page PWA, one button that logs position + accuracy, installed to home screen | Stand at a tee marker 5 times; check scatter | **Installed on iPhone; GPS works indoors. Outdoor scatter test pending** |
 | 1. Tracker MVP | Club buttons, hole/shot counter, distance between presses, holed-out + putt counter, local queue | Play 3 holes; compare distances with yardage markers | **Built, not yet field-tested** |
 | 2. Cloud sync | Supabase tables, sync queue, CSV export | Airplane mode mid-hole, reconnect; no shots lost | Not started |
-| 3. Course images (one course) | Overpass fetch, coverage report, per-hole images for one home course | Compare with the course's scorecard map | Not started |
-| 4. Overlay | Shots plotted on the hole image during and after the round | Review a full round on the map | Early version in Phase 1: shots on the satellite map (no outlines or rotation yet) |
+| 3. Course images (one course) | Overpass fetch, coverage report, per-hole images for one home course | Compare with the course's scorecard map | **Built for David's ~30 courses (see 2026-11-02), not yet field-checked** |
+| 4. Overlay | Shots plotted on the hole image during and after the round | Review a full round on the map | **Built (tee-at-bottom hole photos), not yet field-tested** |
 | 5. Any course on demand | Course search, automatic image generation, coverage fallbacks | Try an unfamiliar course, incl. one with sparse OSM data | Not started |
-| 6. Stats | Average and range per club, dispersion by club, shots to green | Compare with Arccos club averages before cancelling | Not started |
+| 6. Stats | Average and range per club, dispersion by club, shots to green | Compare with Arccos club averages before cancelling | Early version: club averages, fairway %, GIR %, putts |
 
 **Phase 0 pass criteria:** every reading's accuracy ≤ 10 m, and the worst
 reading within 5 m (≈ 5.5 yd) of the average point over 5 readings at the same
@@ -174,21 +176,49 @@ one constant, `SAMPLE_MS` in `js/geo.js`, to be tuned from the test results.
 - Storage is one JSON document in `localStorage` (`js/store.js`). Cloud sync
   (Phase 2) should copy these same records.
 
+**Restart (2026-11-02):** David didn't like the earlier UI and asked to start
+over with **Arccos as the primary target**: an app that works like Arccos,
+minus the sensors (he taps the club for each shot). The whole app was
+rewritten. Rules kept: no Arccos name, logo or screenshots in the repo, and
+our own colors (green badges on black, not Arccos's exact palette).
+- Screens: Home tabs (Player, Clubs, Courses, Activity, Start Round); a
+  full-screen hole view (aerial photo, tee at the bottom) with live F/C/B
+  yardages, tap-to-measure, hole strip, score box, putts −/+, **+ SHOT**;
+  EDIT mode (drag shots, tap to add a missed shot, change club, reorder,
+  exclude, delete, Undo); shot list with results; full scorecard.
+- After putting out, the next + SHOT moves to the next hole automatically
+  (also when the player is on the next tee far from the last green).
+- Shot results, fairway and GIR are computed from OSM green/fairway outlines
+  (`analyzeHole` in `js/round.js`); scorecard taps override them.
+- First putt distance is measured to the green's center (pin unknown).
+
+**Course pipeline (2026-11-02):** the dev environment can't reach map
+servers, so `.github/workflows/course-data.yml` runs `tools/osm_fetch.py`
+(Overpass) and `tools/build_courses.py` (USGS tiles, Pillow) on GitHub's
+runners and commits `courses/` and `data/` back to the branch. Hole images
+are 768x1280 JPEGs rendered from USGS NAIP tiles at zoom 18; each stores an
+affine transform from Web Mercator pixels to image pixels (`image.m`).
+
 Update the Status column when a phase changes state.
 
 ### Open items
 
-- **Imagery provider:** the live map uses **USGS The National Map,
-  `USGSImageryOnly`** (checked 2026-09-25: USGS data is US public domain,
-  free to use with USGS credited; US coverage only; mostly ~0.6–1 m NAIP
-  photos). No account or key. Tiles aren't cached by the service worker yet.
-  The maximum zoom requested (`IMAGERY_MAX_NATIVE_ZOOM` in `js/map.js`) could
-  not be verified from the dev environment; confirm in the field. Revisit if
-  the resolution is too coarse for Phase 3 hole images.
+- **Imagery provider:** hole images come from the **USGS NAIP image service**
+  (`USGSNAIPPlus/ImageServer/exportImage`; USDA NAIP aerial photos, public
+  domain, 0.3 m/pixel, checked 2026-11-03 with `tools/probe_imagery.py`).
+  The USGS tile cache (`USGSImageryOnly`) only serves up to zoom 16
+  (~2 m/pixel) and is the fallback. Credit: USDA NAIP via USGS.
 - **Cloud database:** confirm Supabase free-tier limits still fit (row count,
   pause-after-inactivity rules) before Phase 2.
 - **Arccos baseline:** David must capture club averages and any round data he
   wants to keep before the subscription ends (screenshots are the only export).
+- **Course coverage (2026-11-03):** 31 courses have every hole with an
+  image, par, green outline and (nearly all) fairways; see
+  `data/coverage.md`. Gaps: **Diamond Bar** (greens/tees mapped but no hole
+  lines in OSM; scorable only), **Don Knabe** (mapped only as a driving
+  range; not listed). Fix either by mapping in OSM and re-running the
+  workflow. David's separate course-images project was superseded by this
+  pipeline.
 - **Pin position:** decide later whether to track distance to the pin (needs a
   green position per day) or only shot-to-shot distance.
 - **iOS location prompt:** home-screen web apps may re-ask for location
@@ -197,26 +227,29 @@ Update the Status column when a phase changes state.
 ## 10. Repository layout (current)
 
 ```
-/                       Phase 1 shot tracker (served by GitHub Pages)
-├── index.html, style.css
+/                       the app (served by GitHub Pages)
+├── index.html, css/app.css
 ├── js/
-│   ├── app.js          screen logic
-│   ├── round.js        round data + distance rules (pure, unit-tested)
-│   ├── geo.js          GPS sampling, haversine
-│   ├── store.js        localStorage + CSV/JSON export
-│   └── map.js          Leaflet satellite map + shot pins
-├── vendor/leaflet/     Leaflet 1.9.4 (vendored so it works offline)
-├── gps-test/           Phase 0 GPS accuracy test + its README
-├── tests/              unit tests: node --test tests/*.test.mjs
-├── sw.js               service worker (caches app files only, never location data)
-├── manifest.webmanifest
-├── icons/
-├── README.md           how to use the tracker + Phase 1 field test
-└── CLAUDE.md           this file
+│   ├── app.js          screens
+│   ├── round.js        round data, distances, results, stats (pure, unit-tested)
+│   ├── geo.js          GPS sampling, distances, image <-> GPS math (pure, unit-tested)
+│   ├── holeview.js     hole photo + shots, zoom/pan, drag
+│   ├── courses.js      course loading, offline download
+│   └── store.js        localStorage, backup/restore
+├── courses/            generated: index.json, <id>/course.json, <id>/hNN.jpg
+├── tools/              course pipeline: courses.json, osm_fetch.py, build_courses.py
+├── data/               raw OSM downloads + coverage.md (generated)
+├── .github/workflows/  course-data.yml (runs the pipeline on GitHub)
+├── gps-test/           Phase 0 GPS accuracy test
+├── tests/              node --test tests/*.test.mjs
+├── sw.js               service worker (app files + course files; never location data)
+├── manifest.webmanifest, icons/
+└── README.md, CLAUDE.md
 ```
 
-When the service worker's cached files change, bump `CACHE_NAME` in `sw.js`
-so phones pick up the new version.
+When the service worker's cached app files change, bump `APP_CACHE` in
+`sw.js` so phones pick up the new version. Bump `COURSE_CACHE` when hole
+images are re-rendered.
 
 ## 11. How to work with David
 
