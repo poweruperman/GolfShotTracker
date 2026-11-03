@@ -466,11 +466,19 @@ def main():
         print(f"{c['id']}: {cov['holes_found']}/{cov['holes_expected']} holes", flush=True)
         cdir = os.path.join(ROOT, f"courses/{c['id']}")
         tiles = TileCache()
+        # Images rendered by an earlier run are kept (delete a course's folder,
+        # or run with --rerender, to draw them again).
+        prev = {}
+        prev_path = os.path.join(cdir, "course.json")
+        if os.path.exists(prev_path) and "--rerender" not in sys.argv:
+            prev = {ph["n"]: ph.get("image") for ph in json.load(open(prev_path))["holes"]}
         out = []
         for h in holes:
             img = None
             fname = f"h{h['n']:02d}.jpg"
-            if render:
+            if prev.get(h["n"]) and os.path.exists(os.path.join(cdir, fname)):
+                img = prev[h["n"]]
+            elif render:
                 img = render_hole(loc, h, tiles, os.path.join(cdir, fname))
                 img["file"] = fname
             out.append({
